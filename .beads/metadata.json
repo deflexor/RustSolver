@@ -1,0 +1,7 @@
+{
+  "database": "dolt",
+  "backend": "dolt",
+  "dolt_mode": "embedded",
+  "dolt_database": "RustSolver",
+  "project_id": "d8371ab4-2c6f-40a1-8bdc-40269c3b84f5"
+}
