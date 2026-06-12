@@ -80,7 +80,7 @@ impl<'a> TreeBuilder<'a>{
         match &self.tree.get_node(node_id).data {
             GameTreeNode::Action(_) => {
                 for action in state.valid_actions(&self.options.action_abstraction, round_idx.into()) {
-                    self.build_action(node_id, round_idx, state, action);
+                    self.build_action(node_id, round_idx, state.clone(), action);
                 }
             },
             _ => panic!("should be action node")

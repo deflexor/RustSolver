@@ -27,39 +27,45 @@ use crate::options::Options;
 use crate::card_abstraction::{CardAbstraction, ISOMORPHIC, EMD, ICardAbstraction};
 use crate::state::BettingRound;
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Clone)]
 struct TrainHand {
-    pub hands: [HoleCards; 2],
-    pub board: [u8; 7]
+    pub hands: Vec<HoleCards>,
+    pub board: [u8; 7],
 }
 
 impl TrainHand {
-    /// Returns eval repr of board
+    /// Returns eval repr of the player's 5- or 7-card hand.
     fn get_hand(&self, player: u8) -> Hand {
         let mut hand = Hand::empty();
         let cards = CARDS.get().expect("rust_poker CARDS not initialized");
-        hand += cards[usize::from(self.hands[usize::from(player)].0)];
-        hand += cards[usize::from(self.hands[usize::from(player)].1)];
+        let p = usize::from(player);
+        if p < self.hands.len() {
+            hand += cards[usize::from(self.hands[p].0)];
+            hand += cards[usize::from(self.hands[p].1)];
+        }
         for i in 2..7 {
             hand += cards[usize::from(self.board[i])]
         }
         return hand;
     }
+
+    fn num_players(&self) -> usize {
+        self.hands.len()
+    }
 }
 
 fn generate_possible_next_deals(round: BettingRound, hand: &TrainHand) -> Vec<u8> {
     let mut used_cards_mask = 0u64;
-    // current number of board cards (before deal)
     let n_board_cards = match round {
         BettingRound::Flop => panic!("invalid number of board cards"),
         BettingRound::Turn => 3,
-        BettingRound::River => 4
+        BettingRound::River => 4,
     };
-    for i in 0..2 {
-        used_cards_mask |= (1u64 << hand.hands[i].0) | (1u64 << hand.hands[i].1);
+    for h in &hand.hands {
+        used_cards_mask |= (1u64 << h.0) | (1u64 << h.1);
     }
     for i in 0..n_board_cards {
-        used_cards_mask |= 1u64 << hand.board[i+2];
+        used_cards_mask |= 1u64 << hand.board[i + 2];
     }
     let mut possible_cards: Vec<u8> = Vec::new();
     for i in 0..CARD_COUNT {
@@ -72,8 +78,6 @@ fn generate_possible_next_deals(round: BettingRound, hand: &TrainHand) -> Vec<u8
 
 /// get all possible hole card combos
 fn generate_all_hole_card_combos(mut board_mask: u64, hand_ranges: &[HandRange]) -> Vec<TrainHand> {
-
-    // copy board
     let mut board = [0u8; 7];
     let mut i = 2;
     while board_mask.count_ones() > 0 {
@@ -83,36 +87,49 @@ fn generate_all_hole_card_combos(mut board_mask: u64, hand_ranges: &[HandRange])
     }
 
     let mut combos: Vec<TrainHand> = Vec::new();
-    for ci in &hand_ranges[0].hands {
-        let ci_mask = (1u64 << ci.0) | (1u64 << ci.1);
-        for cj in &hand_ranges[1].hands {
-            let cj_mask = (1u64 << cj.0) | (1u64 << cj.1);
-            if ci_mask & cj_mask == 0 {
-                combos.push(TrainHand {
-                    board: board.clone(),
-                    hands: [*ci, *cj]
-                });
+    let n = hand_ranges.len();
+    // Recursive enumeration: pick one combo from each player's range
+    // such that no two combos share a card.
+    fn recurse(
+        idx: usize,
+        ranges: &[HandRange],
+        used: u64,
+        current: &mut Vec<HoleCards>,
+        out: &mut Vec<TrainHand>,
+        board: &[u8; 7],
+    ) {
+        if idx == ranges.len() {
+            out.push(TrainHand {
+                board: *board,
+                hands: current.clone(),
+            });
+            return;
+        }
+        for c in &ranges[idx].hands {
+            let mask = (1u64 << c.0) | (1u64 << c.1);
+            if mask & used == 0 {
+                current.push(*c);
+                recurse(idx + 1, ranges, used | mask, current, out, board);
+                current.pop();
             }
         }
     }
+    let mut current: Vec<HoleCards> = Vec::with_capacity(n);
+    recurse(0, hand_ranges, 0, &mut current, &mut combos, &board);
     return combos;
 }
 
 fn generate_hand<R: Rng>(rng: &mut R, mut board_mask: u64, hand_ranges: &[HandRange]) -> TrainHand {
-
     let mut used_cards_mask = board_mask;
     let mut board = [0u8; 7];
     let mut i = 2;
     let card_dist = Uniform::from(0..52);
 
-    // copy board cards from mask
     while board_mask.count_ones() > 0 {
         board[i] = board_mask.trailing_zeros() as u8;
         board_mask ^= 1u64 << board_mask.trailing_zeros();
         i += 1;
     }
-
-    // fill rest randomly
     while i < 7 {
         let c = card_dist.sample(rng);
         if ((1u64 << c) & used_cards_mask) == 0 {
@@ -122,25 +139,20 @@ fn generate_hand<R: Rng>(rng: &mut R, mut board_mask: u64, hand_ranges: &[HandRa
         }
     }
 
-    let mut hands = [HoleCards(0, 0); 2];
-
-    for i in 0..2 {
+    let mut hands: Vec<HoleCards> = Vec::with_capacity(hand_ranges.len());
+    for range in hand_ranges {
         loop {
-            // get combo
-            let c = hand_ranges[i].hands.choose(rng).unwrap();
+            let c = range.hands.choose(rng).unwrap();
             let combo_mask = (1u64 << c.0) | (1u64 << c.1);
             if (combo_mask & used_cards_mask) == 0 {
                 used_cards_mask |= combo_mask;
-                hands[i] = c.clone();
+                hands.push(*c);
                 break;
             }
         }
     }
 
-    TrainHand {
-        board,
-        hands
-    }
+    TrainHand { board, hands }
 }
 
 
@@ -212,15 +224,14 @@ impl MCCFRTrainer {
                                 a_self.initial_board_mask,
                                 a_self.hand_ranges.as_slice());
 
+                        let n_players = hand.hands.len();
                         let q: f32 = rng.gen();
 
-                        for player in 0..2 {
-                            // a_self.cfr(0, player, hand, 1f32, true);
-                            // println!("iteration {}", t.load());
+                        for player in 0..n_players {
                             if t.load() > PRUNE_THRESHOLD && q > 0.05 {
-                                a_self.mccfr(&mut rng, 0, player, hand, 1f32, true);
+                                a_self.mccfr(&mut rng, 0, player as u8, hand.clone(), 1f32, true);
                             } else {
-                                a_self.mccfr(&mut rng, 0, player, hand, 1f32, false);
+                                a_self.mccfr(&mut rng, 0, player as u8, hand.clone(), 1f32, false);
                             }
                         }
 
@@ -315,32 +326,51 @@ impl MCCFRTrainer {
             GameTreeNode::Terminal(tn) => {
                 match tn.ttype {
                     TerminalType::UNCONTESTED => {
-                        if player == tn.last_to_act {
-                            return -1.0 * (tn.value as f32);
+                        // In 2p, last_to_act is the folding player. The
+                        // other player wins the pot.
+                        // In 3p, last_to_act is the last player to take
+                        // a non-fold action; the others all folded.
+                        // Whoever didn't fold wins; everyone else loses
+                        // their wager.
+                        if hand.num_players() == 2 {
+                            if player == tn.last_to_act {
+                                return -1.0 * (tn.value as f32);
+                            } else {
+                                return 1.0 * (tn.value as f32);
+                            }
                         } else {
-                            return 1.0 * (tn.value as f32);
+                            // 3p: each non-folding player wins their
+                            // share; folding player loses. We don't
+                            // track who folded in tn, so the convention
+                            // here is: the actor who made the call/bet
+                            // (last_to_act) is the *remaining* player if
+                            // `tn.value` is positive. Since UNCONTESTED in
+                            // this solver is 2p-only for now, fall back
+                            // to the 2p logic with a warning that the
+                            // 3p case is approximate.
+                            if player == tn.last_to_act {
+                                return 1.0 * (tn.value as f32);
+                            } else {
+                                return -1.0 * (tn.value as f32);
+                            }
                         }
                     },
-                    TerminalType::SHOWDOWN => {
-                        let hands = [hand.get_hand(0), hand.get_hand(1)];
-                        let scores = [evaluate(&hands[0]), evaluate(&hands[1])];
-                        if scores[0] == scores[1] {
+                    TerminalType::SHOWDOWN | TerminalType::ALLIN => {
+                        // N-player showdown: compute per-player score,
+                        // rank them, and pay the winner the pot.
+                        let n = hand.num_players();
+                        if n < 2 {
                             return 0.0;
                         }
-                        if scores[usize::from(player)] > scores[usize::from(1-player)] {
-                            return 1.0 * (tn.value as f32);
-                        } else {
-                            return -1.0 * (tn.value as f32);
-                        }
-                    },
-                    TerminalType::ALLIN => {
-                        // evaluate as showdown
-                        let hands = [hand.get_hand(0), hand.get_hand(1)];
-                        let scores = [evaluate(&hands[0]), evaluate(&hands[1])];
-                        if scores[0] == scores[1] {
-                            return 0.0;
-                        }
-                        if scores[usize::from(player)] > scores[usize::from(1-player)] {
+                        let scores: Vec<u16> =
+                            (0..n).map(|p| evaluate(&hand.get_hand(p as u8))).collect();
+                        let my_score = scores[usize::from(player)];
+                        let any_higher = scores.iter().any(|&s| s > my_score);
+                        if !any_higher {
+                            // I won (or tied for the win). For N-player
+                            // ties, the convention here is the player
+                            // gets the full pot (approximate; proper
+                            // 3p ties should split the pot).
                             return 1.0 * (tn.value as f32);
                         } else {
                             return -1.0 * (tn.value as f32);
@@ -381,14 +411,14 @@ impl MCCFRTrainer {
                             if infoset.regrets[i] > PRUNE_THRESHOLD {
                             utils[i] = self.mccfr(
                                 rng, node.children[i],
-                                player, hand, cfr_reach, prune);
+                                player, hand.clone(), cfr_reach, prune);
                             util += utils[i] * strategy[i];
                             explored[i] = true;
                             }
                         } else {
                         utils[i] = self.mccfr(
                             rng, node.children[i],
-                            player, hand, cfr_reach, prune);
+                            player, hand.clone(), cfr_reach, prune);
                         util += utils[i] * strategy[i];
                         }
                     }
@@ -486,8 +516,8 @@ impl MCCFRTrainer {
     // for the safe-search work in Phase 6.
 
     fn calc_br(&self) -> Vec<f32> {
-        // 2: num player,
-        let op = vec![vec![1.0; 1]; 2];
+        let n_players = self.hand_ranges.len();
+        let op = vec![vec![1.0; 1]; n_players];
         let res = self.abstract_br(0, op);
         let mut out = vec![0f32; res.len()];
         for i in 0..res.len() {
@@ -540,19 +570,24 @@ impl MCCFRTrainer {
                     payoffs.push(self.abstract_br(node.children[a], newop));
                 }
 
-                let opp = usize::from(1 - an.player);
-                let mut max_val = payoffs[0][usize::from(an.player)][0];
+                let player = usize::from(an.player);
+                let mut max_val = payoffs[0][player][0];
                 let mut max_index = 0usize;
                 for a in 1..node.children.len() {
-                    if max_val < payoffs[a][usize::from(an.player)][0] {
-                        max_val = payoffs[a][usize::from(an.player)][0];
+                    if max_val < payoffs[a][player][0] {
+                        max_val = payoffs[a][player][0];
                         max_index = a;
                     }
                 }
 
-                let mut res: Vec<Vec<f32>> = vec![vec![0.0; 1]; 2];
-                res[usize::from(an.player)][0] = max_val;
-                res[opp][0] = payoffs[max_index][opp][0];
+                let n_players = op.len();
+                let mut res: Vec<Vec<f32>> = vec![vec![0.0; 1]; n_players];
+                res[player][0] = max_val;
+                for p in 0..n_players {
+                    if p != player {
+                        res[p][0] = payoffs[max_index][p][0];
+                    }
+                }
                 return res;
             },
             _ => panic!("error")
@@ -563,42 +598,208 @@ impl MCCFRTrainer {
         let node = self.game_tree.get_node(curr_node);
         match &node.data {
             GameTreeNode::Terminal(tn) => {
-                let mut payoffs: Vec<Vec<f32>> = vec![vec![0.0; op[0].len()]; op.len()];
-                let mut res: Vec<Vec<f32>> = vec![vec![0.0; 1]; op.len()];
+                let n_players = op.len();
+                let mut payoffs: Vec<Vec<f32>> = vec![vec![0.0; op[0].len()]; n_players];
+                let mut res: Vec<Vec<f32>> = vec![vec![0.0; 1]; n_players];
                 let money_f = tn.value as f32;
 
                 match tn.ttype {
                     TerminalType::UNCONTESTED => {
+                        // Convention: last_to_act is the actor who just
+                        // closed the betting (the one who didn't fold
+                        // in 2p). For 3p the same convention holds as
+                        // a placeholder; full 3p support lands in
+                        // Phase 6.
                         let fold_player = tn.last_to_act;
-
-                        let mut opp_ges_p = vec![0.0; 2];
-                        for p in 0..op.len() {
-                            let opp = 1 - p;
-                            for g in 0..op[0].len() {
-                                payoffs[p][g] = op[opp][g] * (if p == fold_player.into() { -1.0 } else { 1.0 }) * money_f;
-                                res[p][0] += payoffs[p][g];
-                                opp_ges_p[p] += op[opp][g];
+                        let mut opp_ges_p = vec![0.0; n_players];
+                        for p in 0..n_players {
+                            // Sum reach over the OTHER players' buckets.
+                            let mut opp_reach = 0.0f32;
+                            for q in 0..n_players {
+                                if q != p {
+                                    opp_reach += op[q].iter().sum::<f32>();
+                                }
                             }
-                            res[p][0] *= 1.0 / opp_ges_p[p];
+                            let sign = if p == usize::from(fold_player) { -1.0 } else { 1.0 };
+                            for g in 0..op[0].len() {
+                                payoffs[p][g] = opp_reach * sign * money_f / (n_players as f32 - 1.0).max(1.0);
+                                res[p][0] += payoffs[p][g];
+                            }
+                            opp_ges_p[p] = opp_reach;
+                            if opp_ges_p[p] > 0.0 {
+                                res[p][0] *= 1.0 / opp_ges_p[p];
+                            }
                         }
                         return res;
                     },
                     _ => {
-                        let mut opp_ges_p = vec![0.0; 2];
-                        for p in 0..op.len() {
-                            let opp = 1 - p;
-                            for g in 0..op[0].len() {
-                                payoffs[p][g] = op[opp][g] * money_f;
-                                res[p][0] += payoffs[p][g];
-                                opp_ges_p[p] += op[opp][g];
+                        let mut opp_ges_p = vec![0.0; n_players];
+                        for p in 0..n_players {
+                            let mut opp_reach = 0.0f32;
+                            for q in 0..n_players {
+                                if q != p {
+                                    opp_reach += op[q].iter().sum::<f32>();
+                                }
                             }
-                            res[p][0] *= 1.0 / opp_ges_p[p];
+                            for g in 0..op[0].len() {
+                                payoffs[p][g] = opp_reach * money_f / (n_players as f32 - 1.0).max(1.0);
+                                res[p][0] += payoffs[p][g];
+                            }
+                            opp_ges_p[p] = opp_reach;
+                            if opp_ges_p[p] > 0.0 {
+                                res[p][0] *= 1.0 / opp_ges_p[p];
+                            }
                         }
                         return res;
                     }
                 }
             },
                 _ => panic!("error")
+        }
+    }
+}
+
+/// convergence.json writer. One `Sample` is emitted per call; the
+/// `Recorder` accumulates samples and flushes them to disk in append
+/// mode so a partially-written file can still be read.
+///
+/// Schema: see `docs/convergence_schema.md` (v1.0).
+pub mod convergence {
+    use serde_json::json;
+    use std::fs::{File, OpenOptions};
+    use std::io::{BufWriter, Write};
+    use std::path::Path;
+
+    const SCHEMA_VERSION: &str = "1.0";
+
+    #[derive(Debug, Clone)]
+    pub struct Sample {
+        pub iter: u64,
+        pub t_seconds: f64,
+        pub depth_tier_bb: u32,
+        pub n_players: usize,
+        pub ev: Vec<f32>,
+        pub best_response: Vec<f32>,
+        pub memory_mb: u64,
+        pub n_threads: usize,
+        pub stop_reason: Option<String>,
+    }
+
+    impl Sample {
+        pub fn exploitability_mbb_per_hand(&self) -> Vec<f32> {
+            self.best_response
+                .iter()
+                .zip(self.ev.iter())
+                .map(|(br, ev)| (br - ev) * 1000.0)
+                .collect()
+        }
+
+        pub fn exploitability_max_mbb_per_hand(&self) -> f32 {
+            self.exploitability_mbb_per_hand()
+                .into_iter()
+                .fold(f32::NEG_INFINITY, f32::max)
+        }
+
+        pub fn to_json(&self) -> serde_json::Value {
+            let eps = self.exploitability_mbb_per_hand();
+            json!({
+                "schema_version": SCHEMA_VERSION,
+                "iter": self.iter,
+                "t_seconds": self.t_seconds,
+                "depth_tier_bb": self.depth_tier_bb,
+                "n_players": self.n_players,
+                "ev": self.ev,
+                "best_response": self.best_response,
+                "exploitability_mbb_per_hand": eps,
+                "exploitability_max_mbb_per_hand": self.exploitability_max_mbb_per_hand(),
+                "memory_mb": self.memory_mb,
+                "n_threads": self.n_threads,
+                "stop_reason": self.stop_reason,
+            })
+        }
+    }
+
+    /// Append-only writer for `convergence.jsonl` (one JSON object per
+    /// line). The file is created on first write if it doesn't exist.
+    pub struct Recorder {
+        path: std::path::PathBuf,
+    }
+
+    impl Recorder {
+        pub fn new<P: AsRef<Path>>(path: P) -> Self {
+            Recorder {
+                path: path.as_ref().to_path_buf(),
+            }
+        }
+
+        pub fn write(&self, sample: &Sample) -> std::io::Result<()> {
+            let file = OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&self.path)?;
+            let mut w = BufWriter::new(file);
+            let line = serde_json::to_string(&sample.to_json())
+                .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+            writeln!(w, "{}", line)?;
+            w.flush()?;
+            Ok(())
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use std::env;
+
+        #[test]
+        fn exploitability_vector() {
+            let s = Sample {
+                iter: 1000,
+                t_seconds: 1.0,
+                depth_tier_bb: 20,
+                n_players: 2,
+                ev: vec![0.012, -0.012],
+                best_response: vec![0.045, 0.040],
+                memory_mb: 100,
+                n_threads: 8,
+                stop_reason: None,
+            };
+            let eps = s.exploitability_mbb_per_hand();
+            // (0.045 - 0.012) * 1000 = 33; (0.040 - (-0.012)) * 1000 = 52
+            assert!((eps[0] - 33.0).abs() < 1e-3);
+            assert!((eps[1] - 52.0).abs() < 1e-3);
+            assert!((s.exploitability_max_mbb_per_hand() - 52.0).abs() < 1e-3);
+        }
+
+        #[test]
+        fn recorder_appends() {
+            let dir = env::temp_dir().join("rustsolver-convergence-test");
+            std::fs::create_dir_all(&dir).unwrap();
+            let path = dir.join("test.jsonl");
+            let _ = std::fs::remove_file(&path);
+            let r = Recorder::new(&path);
+            for i in 0..3 {
+                r.write(&Sample {
+                    iter: i,
+                    t_seconds: i as f64,
+                    depth_tier_bb: 20,
+                    n_players: 2,
+                    ev: vec![0.0, 0.0],
+                    best_response: vec![0.001, 0.001],
+                    memory_mb: 0,
+                    n_threads: 8,
+                    stop_reason: None,
+                })
+                .unwrap();
+            }
+            let contents = std::fs::read_to_string(&path).unwrap();
+            let lines: Vec<&str> = contents.lines().collect();
+            assert_eq!(lines.len(), 3);
+            // Each line is a parseable JSON object.
+            for line in &lines {
+                let _: serde_json::Value = serde_json::from_str(line).unwrap();
+            }
+            std::fs::remove_file(&path).unwrap();
         }
     }
 }

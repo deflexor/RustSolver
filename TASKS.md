@@ -61,6 +61,8 @@ this can be re-imported into a tracker later).
 | P3.2 | Verify `state.rs` reads `Options::max_raises` and `Options::all_in_threshold`; remove global constants as the source of truth | 60 | P1.5, P3.1 | 1 |
 | P3.3 | `Options::max_action_sequences_per_street: u32` (default 200); in `tree_builder`, prune leaf actions when node would exceed the cap; verify tree-builder correctness | 240 | P3.2 | 2 |
 
+| P4.prep | `convergence.json` schema (1.0) in `docs/convergence_schema.md`; `convergence::Sample` + `convergence::Recorder` in `cfr.rs`; 2 unit tests for the recorder | 180 | P1.6 | 0 | done |
+
 ## Phase 4 - Exploitability, BR, CFR+
 
 | ID | Title | Est (min) | Deps | Priority |
@@ -151,6 +153,7 @@ Phase 8 (independent; feeds runtime via Options::preflop_ranges)
 |-------|-------|--------------------|
 | 0     | 8     | 1050 (plus optional 2400 if P0.5b chosen) |
 | 1     | 7     | 1200               |
+| 1-prep| 1     | 180                |
 | 2     | 6     | 1080               |
 | 3     | 3     | 420                |
 | 4     | 5     | 1080               |
@@ -158,7 +161,7 @@ Phase 8 (independent; feeds runtime via Options::preflop_ranges)
 | 6     | 5     | 1740               |
 | 7     | 5     | 1320               |
 | 8     | 2     | 420                |
-| **Total** | **45** | **~8700 min (~14.5 work-weeks at 10h/week)** |
+| **Total** | **46** | **~8880 min (~14.8 work-weeks at 10h/week)** |
 
 ## Why this file and not `bd`
 

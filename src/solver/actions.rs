@@ -1,5 +1,3 @@
-use crate::state::GameState;
-
 #[derive(Debug, Copy, Clone)]
 pub enum Action {
     Bet(f64),
@@ -21,7 +19,7 @@ impl Action {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ActionAbstraction {
     pub bet_sizes: Vec<Vec<f64>>,
     pub raise_sizes: Vec<Vec<f64>>,
