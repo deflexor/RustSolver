@@ -300,7 +300,6 @@ impl ICardAbstraction for EMD {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use test::Bencher;
     use crate::options;
     use std::time::{Duration, Instant};
 

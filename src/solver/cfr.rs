@@ -36,11 +36,12 @@ struct TrainHand {
 impl TrainHand {
     /// Returns eval repr of board
     fn get_hand(&self, player: u8) -> Hand {
-        let mut hand = Hand::default();
-        hand += CARDS[usize::from(self.hands[usize::from(player)].0)];
-        hand += CARDS[usize::from(self.hands[usize::from(player)].1)];
+        let mut hand = Hand::empty();
+        let cards = CARDS.get().expect("rust_poker CARDS not initialized");
+        hand += cards[usize::from(self.hands[usize::from(player)].0)];
+        hand += cards[usize::from(self.hands[usize::from(player)].1)];
         for i in 2..7 {
-            hand += CARDS[usize::from(self.board[i])]
+            hand += cards[usize::from(self.board[i])]
         }
         return hand;
     }
@@ -250,7 +251,7 @@ impl MCCFRTrainer {
                         for i in 0..a_self.infosets.len() {
                             for j in 0..a_self.infosets[i].len() {
                                 let infoset_mut = (&a_self.infosets[i][j] as *const Infoset) as *mut Infoset;
-                                let n_actions = unsafe { (*infoset_mut).regrets.len() };
+                                let n_actions = unsafe { (&(*infoset_mut).regrets).len() };
                                 for k in 0..n_actions {
                                     unsafe {
                                         (*infoset_mut).regrets[k] = ((*infoset_mut).regrets[k] as f32 * d) as i32;
@@ -486,7 +487,7 @@ impl MCCFRTrainer {
 
     fn calc_br(&self) -> Vec<f32> {
         // 2: num player,
-        let mut op = vec![vec![1.0; 1]; 2];
+        let op = vec![vec![1.0; 1]; 2];
         let res = self.abstract_br(0, op);
         let mut out = vec![0f32; res.len()];
         for i in 0..res.len() {
@@ -597,7 +598,110 @@ impl MCCFRTrainer {
                     }
                 }
             },
-            _ => panic!("error")
+                _ => panic!("error")
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::options::default_flop;
+    use rust_poker::hand_evaluator::init_cards;
+
+    /// P0.5 smoke test: ensure `MCCFRTrainer::init` builds cleanly and
+    /// `train()` runs end-to-end with finite BR and regret mutation.
+    ///
+    /// Requires:
+    /// - `init_cards()` called once on the main thread before
+    ///   `trainer.train()` (rust_poker 0.1.5 lazy_static race fix)
+    /// - `OUT_DIR` set so the evaluator can find `offset_table.dat`
+    ///   (the build script writes it to `target/release/deps/`)
+    fn setup_out_dir() {
+        if std::env::var("OUT_DIR").is_err() {
+            let candidate = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("target/release/deps");
+            if candidate.join("offset_table.dat").exists() {
+                std::env::set_var("OUT_DIR", &candidate);
+            }
+        }
+    }
+
+    #[test]
+    fn init_builds_clean() {
+        setup_out_dir();
+        init_cards();
+        let options = default_flop();
+        let trainer = MCCFRTrainer::init(options);
+
+        // Initial regrets should all be zero.
+        let mut non_zero = 0usize;
+        for infoset_row in trainer.infosets.iter() {
+            for infoset in infoset_row.iter() {
+                for r in infoset.regrets.iter() {
+                    if *r != 0 {
+                        non_zero += 1;
+                    }
+                }
+            }
+        }
+        assert_eq!(non_zero, 0, "fresh infosets should start with zero regrets");
+
+        // Game tree should have at least one node.
+        assert!(trainer.game_tree.len() > 0, "game tree should be non-empty");
+
+        // Card abstraction should have at least one entry (river).
+        assert_eq!(trainer.card_abs.len(), 1, "should have exactly 1 card abstraction (river)");
+
+        // Infoset table should have at least one row.
+        assert!(trainer.infosets.len() > 0, "infoset table should be non-empty");
+    }
+
+    #[test]
+    fn train_runs_finite() {
+        setup_out_dir();
+        init_cards();
+        let options = default_flop();
+        let mut trainer = MCCFRTrainer::init(options);
+
+        // Snapshot non-zero regrets before training.
+        let mut before = 0usize;
+        for infoset_row in trainer.infosets.iter() {
+            for infoset in infoset_row.iter() {
+                for r in infoset.regrets.iter() {
+                    if *r != 0 {
+                        before += 1;
+                    }
+                }
+            }
+        }
+        assert_eq!(before, 0, "fresh infosets should start with zero regrets");
+
+        // 1000 iters is enough to drive non-zero regrets without
+        // blowing test time. The default config uses 8 worker threads.
+        trainer.train(1_000);
+
+        // After training, BR values should be finite.
+        let br = trainer.calc_br();
+        assert_eq!(br.len(), 2, "calc_br should return 2 floats (2p)");
+        for (i, v) in br.iter().enumerate() {
+            assert!(v.is_finite(), "br[{}] = {} is not finite", i, v);
+        }
+
+        // At least one infoset's regret should have moved off zero.
+        let mut after = 0usize;
+        for infoset_row in trainer.infosets.iter() {
+            for infoset in infoset_row.iter() {
+                for r in infoset.regrets.iter() {
+                    if *r != 0 {
+                        after += 1;
+                    }
+                }
+            }
+        }
+        assert!(
+            after > 0,
+            "no regrets moved off zero after 1000 iters (got 0)"
+        );
     }
 }

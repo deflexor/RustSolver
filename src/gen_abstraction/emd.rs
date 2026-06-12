@@ -115,12 +115,11 @@ pub fn emd_1d(p: &Vec<f32>, q: &Vec<f32>) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use test::Bencher;
 
     const ERROR: f32 = 0.01;
 
-    #[bench]
-    fn test_same(b: &mut Bencher) {
+    #[test]
+    fn test_same() {
         let hist_a = vec![
             0.007493939393939393,
             0.019696969696969702,
@@ -131,14 +130,12 @@ mod tests {
             0.040224242424242426,
             0.0962121212121212,
         ];
-        b.iter(|| {
-            let emd = emd_1d(&hist_a, &hist_a);
-            assert_eq!(emd, 0.0);
-        });
+        let emd = emd_1d(&hist_a, &hist_a);
+        assert_eq!(emd, 0.0);
     }
 
-    #[bench]
-    fn test_emd_66_jt(b: &mut Bencher) {
+    #[test]
+    fn test_emd_66_jt() {
         // 6s6h
         let hist_a = vec![
             0.0, 0.0, 0.0005, 0.0065, 0.0025, 0.0005, 0.0065, 0.003, 0.0115, 0.0095, 0.0135, 0.023,
@@ -152,15 +149,13 @@ mod tests {
             0.055, 0.035, 0.0395, 0.0215, 0.042, 0.042, 0.057, 0.114,
         ];
         let actual_value = 2.709499043500001;
-        b.iter(|| {
-            let emd = emd_1d(&hist_a, &hist_b);
-            assert!(emd < (actual_value + ERROR));
-            assert!(emd > (actual_value - ERROR));
-        });
+        let emd = emd_1d(&hist_a, &hist_b);
+        assert!(emd < (actual_value + ERROR));
+        assert!(emd > (actual_value - ERROR));
     }
 
-    #[bench]
-    fn test_emd_27_aa(b: &mut Bencher) {
+    #[test]
+    fn test_emd_27_aa() {
         let hist_a = vec![
             0.054, 0.151, 0.0345, 0.12, 0.014, 0.012, 0.0095, 0.007, 0.0135, 0.018, 0.0185, 0.0455,
             0.0835, 0.014, 0.03, 0.05, 0.057, 0.0395, 0.018, 0.012, 0.0185, 0.0175, 0.0105, 0.009,
@@ -172,10 +167,8 @@ mod tests {
             0.1455, 0.111, 0.082, 0.1995,
         ];
         let actual_value = 14.220495694500006;
-        b.iter(|| {
-            let emd = emd_1d(&hist_a, &hist_b);
-            assert!(emd < (actual_value + ERROR));
-            assert!(emd > (actual_value - ERROR));
-        });
+        let emd = emd_1d(&hist_a, &hist_b);
+        assert!(emd < (actual_value + ERROR));
+        assert!(emd > (actual_value - ERROR));
     }
 }

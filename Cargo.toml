@@ -24,3 +24,12 @@ byteorder = "1.3.4"
 rand = { version = "0.7", features = ["small_rng"] }
 combine = "4.2.1"
 hashbrown = "0.8.0"
+
+[patch.crates-io]
+# Local fork of rust_poker 0.1.5 with patches for:
+# - removed nightly `#![feature(test)]` gate
+# - replaced buggy `lazy_static!` 1.5.0 with thread-safe `OnceLock`
+# - exposed `init_cards()` helper to pre-initialize lookup tables
+# - read offset_table.dat from a runtime-derivable path
+# See README.md and TASKS.md (P0.5c) for the upstream issues.
+rust_poker = { path = "vendor/rust_poker" }

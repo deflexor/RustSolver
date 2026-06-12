@@ -1,0 +1,18 @@
+[package]
+name = "rust_poker"
+version = "0.1.5"
+authors = ["ruffers9 <kwmurph2@asu.edu>"]
+repository = "https://github.com/ruffers9/rust_poker"
+description = "Rust poker library"
+license = "MIT"
+edition = "2018"
+
+[build-dependencies]
+bindgen = "0.53.1"
+cmake = "0.1"
+
+[dependencies]
+lazy_static = "1.4.0"
+bytepack = "0.4.1"
+rand = { version = "0.7", features = ["small_rng"] }
+crossbeam = "0.7.3"

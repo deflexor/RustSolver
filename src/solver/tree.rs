@@ -66,7 +66,7 @@ impl<T> Tree<T> {
         self.nodes.is_empty()
     }
     /// Pre-order traversal of the subtree rooted at `node`.
-    pub fn preorder(&self, node: NodeId, out: &mut Vec<&T>) {
+    pub fn preorder<'a>(&'a self, node: NodeId, out: &mut Vec<&'a T>) {
         let n = self.get_node(node);
         out.push(&n.data);
         for child in &n.children {

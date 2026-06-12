@@ -77,7 +77,6 @@ impl EHS {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use test::Bencher;
     use rand::distributions::{Uniform};
     use rand::{thread_rng, Rng};
 
@@ -118,27 +117,6 @@ mod tests {
         cards = vec![48u8, 49, 0, 10, 20, 25, 29];
         ehs = ehs_table.get_ehs(cards.as_slice()).unwrap();
         assert_eq!(ehs, 0.842742919921875);
-    }
-
-    #[bench]
-    fn bench_get_ehs_flop(b: &mut Bencher) {
-        let ehs_table = EHS::new();
-        let cards = random_cards(5);
-        b.iter(|| ehs_table.get_ehs(cards.as_slice()).unwrap());
-    }
-
-    #[bench]
-    fn bench_get_ehs_turn(b: &mut Bencher) {
-        let ehs_table = EHS::new();
-        let cards = random_cards(6);
-        b.iter(|| ehs_table.get_ehs(cards.as_slice()).unwrap());
-    }
-
-    #[bench]
-    fn bench_get_ehs_river(b: &mut Bencher) {
-        let ehs_table = EHS::new();
-        let cards = random_cards(7);
-        b.iter(|| ehs_table.get_ehs(cards.as_slice()).unwrap())
     }
 
 }
