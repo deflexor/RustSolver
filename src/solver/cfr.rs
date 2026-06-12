@@ -36,7 +36,7 @@ struct TrainHand {
 impl TrainHand {
     /// Returns eval repr of board
     fn get_hand(&self, player: u8) -> Hand {
-        let mut hand = Hand::empty();
+        let mut hand = Hand::default();
         hand += CARDS[usize::from(self.hands[usize::from(player)].0)];
         hand += CARDS[usize::from(self.hands[usize::from(player)].1)];
         for i in 2..7 {
@@ -478,153 +478,11 @@ impl MCCFRTrainer {
         }
     }
 
-    fn cfr(&self, node_id: NodeId,
-        player: u8, mut hand: TrainHand,
-        cfr_reach: f32, prune: bool) -> f32 {
-            let node = self.game_tree.get_node(node_id);
-            match &node.data {
-                GameTreeNode::PrivateChance => {
-                    let hole_combos = generate_all_hole_card_combos(
-                        self.initial_board_mask,
-                        self.hand_ranges.as_slice()
-                    );
-                    let child_cfr_reach = cfr_reach * (1.0 / hole_combos.len() as f32);
-                    let util = AtomicCell::new(0f32);
-                    hole_combos.par_iter().for_each(|combo| {
-                        let u = self.cfr(
-                            node.children[0], player,
-                            combo.clone(), child_cfr_reach, prune
-                        );
-                        util.store(util.load() + u);
-                    });
-                    return util.load();
-                },
-                GameTreeNode::PublicChance(pc) => {
-                    let possible_deals =
-                        generate_possible_next_deals(pc.round, &hand);
-                    let next_index = match pc.round {
-                        BettingRound::Flop => panic!("should not get here"),
-                        BettingRound::Turn => 5,
-                        BettingRound::River => 6
-                    };
-                    let child_cfr_reach = cfr_reach * (1.0 / possible_deals.len() as f32);
-                    let util = AtomicCell::new(0f32);
-                    possible_deals.par_iter().for_each(|card| {
-                        let mut next_hand = hand.clone();
-                        next_hand.board[next_index] = *card;
-                        let u = self.cfr(
-                            node.children[0], player,
-                            next_hand, child_cfr_reach, prune
-                        );
-                        util.store(util.load() + u);
-                    });
-                    return util.load();
-                },
-                GameTreeNode::Terminal(tn) => {
-                    match tn.ttype {
-                        TerminalType::UNCONTESTED => {
-                            if player == tn.last_to_act {
-                                return -1.0 * (tn.value as f32);
-                            } else {
-                                return 1.0 * (tn.value as f32);
-                            }
-                        },
-                        TerminalType::SHOWDOWN => {
-                            let hands = [hand.get_hand(0), hand.get_hand(1)];
-                            let scores = [evaluate(&hands[0]), evaluate(&hands[1])];
-                            if scores[0] == scores[1] {
-                                return 0.0;
-                            }
-                            if scores[usize::from(player)] > scores[usize::from(1-player)] {
-                                return 1.0 * (tn.value as f32);
-                            } else {
-                                return -1.0 * (tn.value as f32);
-                            }
-                        },
-                        TerminalType::ALLIN => {
-                            // evaluate as showdown
-                            let hands = [hand.get_hand(0), hand.get_hand(1)];
-                            let scores = [evaluate(&hands[0]), evaluate(&hands[1])];
-                            if scores[0] == scores[1] {
-                                return 0.0;
-                            }
-                            if scores[usize::from(player)] > scores[usize::from(1-player)] {
-                                return 1.0 * (tn.value as f32);
-                            } else {
-                                return -1.0 * (tn.value as f32);
-                            }
-                        }
-                    }
-                },
-                GameTreeNode::Action(an) => {
-                    let n_actions = an.actions.len();
-                    // copy hole cards to board
-                    hand.board[0] = hand.hands[usize::from(an.player)].0;
-                    hand.board[1] = hand.hands[usize::from(an.player)].1;
-                    let cluster_idx = match &self.card_abs[usize::from(an.round_idx)] {
-                        CardAbstraction::EMD(card_abs) => card_abs.get_cluster(&hand.board, an.player),
-                        CardAbstraction::ISOMORPHIC(card_abs) => card_abs.get_cluster(&hand.board, an.player),
-                        CardAbstraction::OCHS(card_abs) => card_abs.get_cluster(&hand.board, an.player)
-                    };
-
-
-                    let mut util = 0f32;
-                    let mut utils = vec![0f32; n_actions];
-                    let infoset = &self.infosets[an.index][cluster_idx];
-                    let strategy = infoset.get_strategy();
-
-                    for i in 0..n_actions {
-                        if an.player == player {
-                            utils[i] = self.cfr(
-                                node.children[i], player,
-                                hand, cfr_reach, prune
-                            );
-                        } else {
-                            utils[i] = self.cfr(
-                                node.children[i], player,
-                                hand, strategy[i] * cfr_reach, prune
-                            );
-                        }
-                        util += utils[i] * strategy[i];
-                    }
-
-                    let cards = [
-                        4u8 * 12 + 0,
-                        4u8 * 0 + 0
-                    ];
-                    if an.index == 0 && (hand.hands[usize::from(an.player)].0 == cards[0]) && (hand.hands[usize::from(an.player)].1 == cards[1]) {
-                        for action in &an.actions {
-                            print!("{} ", action.to_string());
-                        }
-                        println!("");
-                        for i in 0..n_actions {
-                            print!("{} ", infoset.regrets[i]);
-                        }
-                        println!("");
-                    }
-                    
-
-
-                    if an.player != player {
-                        return util;
-                    }
-
-                    let infoset_mut = (infoset as *const Infoset) as *mut Infoset;
-                    let strategy = infoset.get_strategy();
-                    for i in 0..n_actions {
-                        unsafe {
-                            (*infoset_mut).regrets[i] +=
-                                (10000.0 * cfr_reach * (utils[i] - util)) as i32;
-                            (*infoset_mut).strategy_sum[i] +=
-                                (10000.0 * cfr_reach * strategy[i]) as i32;
-                        }
-                    }
-
-                    return util;
-
-                }
-            }
-    }
+    // Non-sampling CFR (cfr) was removed in P0.4. It was dead code (the
+    // external call site at line 217 was commented out) and contained an
+    // unsafe raw-pointer cast into Infoset. A clean non-sampling CFR
+    // implementation will be reintroduced as a separate `FullCFR` module
+    // for the safe-search work in Phase 6.
 
     fn calc_br(&self) -> Vec<f32> {
         // 2: num player,

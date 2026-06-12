@@ -59,7 +59,18 @@ Remove things that block further work, no design changes.
 - [ ] Add a smoke test: `train()` for 10k iters asserts BR values are
       finite and the regret table mutates
 - [ ] Verify `rust_poker 0.1.5` still builds; if not, evaluate replacement
-      (`poker_eval_rs`, `poker`)
+      (`poker_eval_rs`, `poker`).
+      **Status (P0.5 update):** `rust_poker 0.1.5` IS the version pinned in
+      `Cargo.toml`, and it does build, but its build script requires
+      `cmake` + `libclang-dev` (it wraps a C `hand_indexer` library via
+      `bindgen`). A `scripts/setup.sh` helper has been added that installs
+      these on Debian/Ubuntu. **Blocker:** `libclang-dev` is not currently
+      installed on this machine (cmake is, but bindgen's libclang lookup
+      fails). Installing `libclang-dev` (e.g. `sudo apt-get install
+      libclang-dev`) unblocks the build. **Alternative:** migrate the
+      solver to `rust_poker 0.1.14` (which is pure Rust) — that requires a
+      multi-day API migration (the public API was completely redesigned
+      between 0.1.5 and 0.1.14; see notes in `TASKS.md` P0.5a/b).
 
 ### Phase 1 - N-player state, no Preflop, stack-cap (1-1.5 weeks)
 

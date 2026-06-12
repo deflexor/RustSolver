@@ -341,8 +341,8 @@ impl Kmeans {
         dataset: &Vec<Vec<f32>>,
     ) {
         println!("Starting growbatch kmeans");
-        let threshold = 0.1;
-        let stop_threshold = 10000000.0;
+        let stop_threshold = 0.1;
+        let max_iter = 1000;
         let start = Instant::now();
         let k = self.centers.len();
         let n_bins = self.centers[0].len();
@@ -386,11 +386,6 @@ impl Kmeans {
                 &mut bounds,
                 dist_func,
             );
-            println!("DONE2");
-            for i in 0..100 {
-                print!("{} ", center_assignments[i]);
-            }
-            println!("");
             // accumulate all assignments
             for i in 0..current_batch_idx {
                 let new_a = center_assignments[i];
@@ -481,6 +476,15 @@ impl Kmeans {
                     inertia
                 );
                 break;
+            } else if t >= max_iter {
+                println!(
+                    "Max iter reached.  took {}ms, batch size: {}, p: {:.3}, inertia: {:4}",
+                    start.elapsed().as_millis(),
+                    current_batch_idx,
+                    min_change,
+                    inertia
+                );
+                break;
             } else {
                 print!(
                     "iteration: {}, batch_size: {}, p: {:.3}, inertia: {:.4}\r",
@@ -489,7 +493,6 @@ impl Kmeans {
                 io::stdout().flush().unwrap();
             }
             t += 1;
-            break;
         }
     }
 

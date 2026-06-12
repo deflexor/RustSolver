@@ -1,5 +1,6 @@
-use std::ops::{Generator, GeneratorState};
 use std::pin::Pin;
+#[allow(unused_imports)]
+use std::marker::Unpin;
 
 /**
  * A tree structure
@@ -13,22 +14,22 @@ pub type NodeId = usize;
 
 #[derive(Debug)]
 pub struct Tree<T> {
-    nodes: Vec<Node<T>>
+    nodes: Vec<Node<T>>,
 }
 
 #[derive(Debug)]
 pub struct Node<T> {
     pub children: Vec<NodeId>,
     parent: Option<NodeId>,
-    pub data: T
+    pub data: T,
 }
 
 impl<T> Node<T> {
     pub fn new(parent: Option<NodeId>, data: T) -> Self {
         Node {
-            data: data,
-            parent: parent,
-            children: Vec::new()
+            data,
+            parent,
+            children: Vec::new(),
         }
     }
     pub fn set_parent(&mut self, parent: NodeId) {
@@ -41,9 +42,7 @@ impl<T> Node<T> {
 
 impl<T> Tree<T> {
     pub fn new() -> Tree<T> {
-        Tree {
-            nodes: Vec::new()
-        }
+        Tree { nodes: Vec::new() }
     }
     pub fn create_node(&mut self, parent: Option<NodeId>, data: T) -> NodeId {
         let index: NodeId = self.nodes.len();
@@ -57,20 +56,29 @@ impl<T> Tree<T> {
     pub fn get_node(&self, idx: NodeId) -> &Node<T> {
         return &self.nodes[idx];
     }
-    // returns a recursive generator for node a specified node
-    pub fn generator(&self, node: NodeId) -> Box<dyn Generator<Yield = &T, Return = ()> + '_> {
-        Box::new(move || {
-            let n = self.get_node(node);
-            yield &n.data;
-            for i in &n.children {
-                let mut subgen = Box::into_pin(self.generator(*i));
-                loop {
-                    match subgen.as_mut().resume(()) {
-                        GeneratorState::Yielded(data) => { yield data; },
-                        GeneratorState::Complete(_) => { break; }
-                    }
-                }
-            }
-        })
+    pub fn iter(&self) -> std::slice::Iter<'_, Node<T>> {
+        self.nodes.iter()
+    }
+    pub fn len(&self) -> usize {
+        self.nodes.len()
+    }
+    pub fn is_empty(&self) -> bool {
+        self.nodes.is_empty()
+    }
+    /// Pre-order traversal of the subtree rooted at `node`.
+    pub fn preorder(&self, node: NodeId, out: &mut Vec<&T>) {
+        let n = self.get_node(node);
+        out.push(&n.data);
+        for child in &n.children {
+            self.preorder(*child, out);
+        }
+    }
+    /// Push a pin-box of this tree to a stable address. Used by callers that
+    /// need to keep a `Pin<&mut Tree<T>>` around for self-referential work.
+    pub fn into_pin(self) -> Pin<Box<Tree<T>>>
+    where
+        T: Unpin,
+    {
+        Pin::new(Box::new(self))
     }
 }

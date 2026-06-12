@@ -1,4 +1,3 @@
-#![feature(test)]
 #![allow(dead_code)]
 #![allow(unused_imports)]
 
@@ -7,7 +6,6 @@ extern crate crossbeam;
 extern crate rand;
 extern crate rayon;
 extern crate rust_poker;
-extern crate test;
 
 mod ehs;
 mod emd;
@@ -235,100 +233,6 @@ fn generate_opponent_clusters(n_opp_clusters: usize) -> Vec<String> {
     return opp_ranges.iter().map(|(s, _)| s.clone()).collect();
 }
 
-// fn gen_ochs(round: u8, n_clusters: usize) {
-
-//     if round < 1 || round > 3 {
-//         panic!("Invalid round");
-//     }
-
-//     let mut rng = thread_rng();
-//     let ehs_table = EHS::new();
-//     let n_opp_clusters: usize = 8;
-//     let round_size = ehs_table.indexers[usize::from(round)]
-//         .size(1);
-//     let total_cards: usize = match round {
-//         0 => 2,
-//         1 => 5,
-//         2 => 6,
-//         3 => 7,
-//         _ => panic!("invalid round")
-//     };
-
-//     println!("Generating OCHS ranges");
-
-//     let ohcs_ranges = generate_opponent_clusters(n_opp_clusters);
-//     for i in 0..ohcs_ranges.len() {
-//         println!("{}", ohcs_ranges[i]);
-//     }
-
-//     println!("Generating {} histograms for round {}", round_size, round);
-
-//     let mut features = vec![vec![0f32; n_opp_clusters]; round_size as usize];
-//     let acc = AtomicCell::new(0usize);
-//     features.par_iter_mut().enumerate().for_each(|(i, hist)| {
-
-//         let iteration = acc.fetch_add(1);
-//         if iteration % 1000 == 0 {
-//             print!("iteration {}/{}\r", iteration, round_size);
-//             io::stdout().flush().unwrap();
-//         }
-
-//         let mut cards = vec![0u8; total_cards];
-//         ehs_table.indexers[usize::from(round)]
-//             .get_hand(if round == 0 { 0 } else { 1 }, i as u64, cards.as_mut_slice());
-//         let hand_str = HoleCards(cards[0], cards[1]).to_string();
-
-//         let mut norm_sum = 0f32;
-//         for i in 0..n_opp_clusters {
-//             let hand_ranges = HandRange::from_strings([
-//                 hand_str.to_owned(),
-//                 ohcs_ranges[i].to_owned()
-//             ].to_vec());
-//             let mut board_mask = 0u64;
-//             for i in 2..total_cards {
-//                 board_mask |= 1u64 << cards[i];
-//             }
-//             let e = calc_equity(&hand_ranges, board_mask, 1, 1000)[0] as f32;
-//             hist[i] = e;
-//             norm_sum += e;
-//         }
-//         for i in 0..n_opp_clusters {
-//             hist[i] /= norm_sum;
-//         }
-//     });
-
-//     // only use 20% of data for training
-//     let train_data: Vec<Histogram> = features
-//         .choose_multiple(&mut rng, round_size as usize / 5)
-//         .cloned()
-//         .collect();
-
-//     let n_restarts = 50;
-//     // let n_clusters = 5000;
-
-//     let mut clusters: Vec<usize> = vec![0; round_size as usize];
-
-//     // initialize kmeans
-//     let mut estimator = kmeans::Kmeans::init_random(
-//         n_restarts, n_clusters,
-//         &mut rng, &kmeans::l2_dist, &train_data);
-
-//     // train kmeans
-//     estimator.fit_regular(&train_data, &kmeans::l2_dist);
-
-//     estimator.predict(&features, &mut clusters, &kmeans::l2_dist);
-
-//     println!("Clusters 0..5: {} {} {} {} {}",
-//              clusters[0], clusters[1],
-//              clusters[2], clusters[3],
-//              clusters[4]);
-
-//     let mut file = OpenOptions::new().write(true).create_new(true).open("round_{}_ochs.dat").unwrap();
-//     for i in 0..round_size {
-//         file.pack(clusters[i as usize] as u32).unwrap();
-//     }
-// }
-
 /// generates emd abstraction and saves to file
 ///
 /// # Arguments
@@ -352,15 +256,11 @@ fn gen_emd(round: u8, n_clusters: usize, n_samples: usize, n_bins: usize) {
         _ => panic!("Invalid round!"),
     };
 
-    // let n_samples = 2000usize;
-    // let n_bins = 30usize;
-    // let n_clusters = 5000usize;
     let n_restarts: usize = 10;
     let round_size = hand_indexer.size(if round == 0 { 0 } else { 1 });
 
     let features = generate_histograms(n_samples, round.into(), n_bins);
     let mut clusters = vec![0usize; round_size as usize];
-    // let mut estimator = kmeans::Kmeans::init_pp(n_clusters, &mut rng, &emd::emd_1d, &features);
     let mut estimator =
         kmeans::Kmeans::init_random(n_restarts, n_clusters, &mut rng, &emd::emd_1d, &features);
 
@@ -381,25 +281,6 @@ fn gen_emd(round: u8, n_clusters: usize, n_samples: usize, n_bins: usize) {
 }
 
 fn main() {
-    // round, n means, n samples, 40 bins
-    gen_emd(1, 500, 250, 20);
-    // flop
-    // gen_emd(2, 5000, 2500, 30); // turn
-    // round, n means
-    // gen_ochs(3, 5000); // river
-    // let ranges = generate_opponent_clusters(8);
-    // for r in ranges {
-    // println!("{}", r);
-    // }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use test::Bencher;
-
-    // #[bench]
-    // fn bench_gen_round_0(b: &mut Bencher) {
-    //     b.iter(|| generate_round(0));
-    // }
+    // round, n means, n samples, n bins
+    gen_emd(1, 500, 250, 20); // flop
 }
