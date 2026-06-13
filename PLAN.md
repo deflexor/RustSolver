@@ -58,19 +58,18 @@ Remove things that block further work, no design changes.
       `FullCFR` module for Phase 6 safe-search)
 - [ ] Add a smoke test: `train()` for 10k iters asserts BR values are
       finite and the regret table mutates
-- [ ] Verify `rust_poker 0.1.5` still builds; if not, evaluate replacement
+- [x] Verify `rust_poker 0.1.5` still builds; if not, evaluate replacement
       (`poker_eval_rs`, `poker`).
-      **Status (P0.5 update):** `rust_poker 0.1.5` IS the version pinned in
-      `Cargo.toml`, and it does build, but its build script requires
-      `cmake` + `libclang-dev` (it wraps a C `hand_indexer` library via
-      `bindgen`). A `scripts/setup.sh` helper has been added that installs
-      these on Debian/Ubuntu. **Blocker:** `libclang-dev` is not currently
-      installed on this machine (cmake is, but bindgen's libclang lookup
-      fails). Installing `libclang-dev` (e.g. `sudo apt-get install
-      libclang-dev`) unblocks the build. **Alternative:** migrate the
-      solver to `rust_poker 0.1.14` (which is pure Rust) — that requires a
-      multi-day API migration (the public API was completely redesigned
-      between 0.1.5 and 0.1.14; see notes in `TASKS.md` P0.5a/b).
+      **Status (post-C-removal):** The C `hand_indexer` library has been
+      **removed** from the vendored fork. `build.rs` is now a no-op;
+      `Cargo.toml` no longer has `bindgen`/`cmake` build-deps; the C
+      source under `hand_indexer/` has been deleted; and
+      `src/hand_indexer.rs` is a pure-Rust stub. The full solver
+      builds in ~4s without cmake or libclang. The
+      `scripts/setup.sh` script is preserved (in case it's needed
+      for a future deck) but is no longer required.
+      The full hand-indexing algorithm is being reimplemented in
+      `crates/poker_canon/` (in progress, paused).
 
 ### Phase 1 - N-player state, no Preflop, stack-cap (1-1.5 weeks)
 

@@ -1047,8 +1047,10 @@ mod tests {
         // Game tree should have at least one node.
         assert!(trainer.game_tree.len() > 0, "game tree should be non-empty");
 
-        // Card abstraction should have at least one entry (river).
-        assert_eq!(trainer.card_abs.len(), 1, "should have exactly 1 card abstraction (river)");
+        // Card abstraction has one entry per postflop street
+        // (flop, turn, river). Round counts are stored in
+        // `card_abs[round_idx]`.
+        assert_eq!(trainer.card_abs.len(), 3, "should have one card abstraction per postflop street");
 
         // Infoset table should have at least one row.
         assert!(trainer.infosets.len() > 0, "infoset table should be non-empty");

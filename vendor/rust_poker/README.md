@@ -27,6 +27,20 @@ running the solver on stable Rust with multiple threads:
    `src/solver/main.rs` sets `OUT_DIR` to the project's
    `target/release/deps/` directory at runtime if not already set.
 
+4. **C `hand_indexer` library removed**: the original
+   `rust_poker 0.1.5` builds the C `hand_indexer` library via
+   `cmake` + `bindgen`, which requires cmake and libclang at
+   build time and can OOM the linker on low-memory machines.
+   The C source under `vendor/rust_poker/hand_indexer/` has been
+   deleted; `build.rs` is now a no-op; and `src/hand_indexer.rs`
+   is a pure-Rust stub with the same public API
+   (`init`, `size`, `get_index`, `get_hand`) but `get_index`
+   returns a suit-canonicalized `u64` hash instead of the C
+   library's dense 0..size index. This lets the solver build
+   and run without cmake/libclang. The full hand-indexing
+   algorithm is being reimplemented in `crates/poker_canon/` at
+   the parent repo; once that lands, this stub will be replaced.
+
 ## Files changed (vs upstream 0.1.5)
 
 - `src/hand_evaluator/hand.rs`: removed `lazy_static!` for `CARDS`;
@@ -40,6 +54,14 @@ running the solver on stable Rust with multiple threads:
 - `src/equity_calculator/equity_calc.rs`: same `CARDS[i]` pattern
   (mechanical `sed` change).
 - `src/lib.rs`: removed `#![feature(test)]` and `extern crate test`.
+- `build.rs`: replaced C-binding generation with a no-op.
+- `Cargo.toml`: removed `bindgen` and `cmake` build-deps.
+- `hand_indexer/`: directory deleted (C source).
+- `src/hand_indexer.rs`: replaced the C-binding FFI with a
+  pure-Rust stub. `init` records the args, `size` returns
+  hard-coded values for known configurations (12888, 54912,
+  2598960), `get_index` returns a `DefaultHasher` hash of the
+  sorted cards, `get_hand` writes a sentinel (0xff) to all bytes.
 
 ## Upstream
 

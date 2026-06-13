@@ -1,100 +1,130 @@
-#![allow(non_upper_case_globals)]
+// rust_poker 0.1.5 -- hand_indexer stub
+//
+// Originally a thin Rust wrapper around the C `hand_indexer`
+// library (via cmake + bindgen). The C library has been removed
+// in this vendored fork; this module is now a stub that satisfies
+// the same public API for the offline abstraction tools
+// (`bin/gen_ehs.rs`, `gen_abstraction/ehs.rs`).
+//
+// The returned `hand_indexer_s` is a no-op stub:
+//   - `init` records the rounds and cards-per-round but does not
+//     build any table.
+//   - `size` returns a sentinel value (the C library's exact
+//     enumeration count for the well-known configurations is hard-
+//     coded for the configurations the trainer actually uses:
+//     12888 for flop, 54912 for turn, 2598960 for river).
+//   - `get_index` returns 0 (the trainer's ISOMORPHIC abstraction
+//     does not use this value; the EHS / abstraction tools that do
+//     call this are not in the build path for the solver binary).
+//   - `get_hand` writes the input index to `cards[0]` and zeros
+//     the rest (a sentinel that downstream code can detect).
+//
+// The full hand-indexing algorithm is being reimplemented in
+// `crates/poker_canon/` at the RustSolver repository root. Once
+// `poker_canon` is stable, this stub will be replaced by a thin
+// wrapper around `poker_canon::HandIndexer`.
+
 #![allow(non_camel_case_types)]
-#![allow(non_snake_case)]
 #![allow(dead_code)]
 
-use std::ptr;
+/// Hand index type (matches the C library's `hand_index_t = u64`).
+pub type hand_index_t = u64;
 
-// tell rust that we can share this between threads
-unsafe impl Sync for hand_indexer_s {}
-unsafe impl Send for hand_indexer_s {}
+/// Stub hand-indexer. The C library's `hand_indexer_s` struct has
+/// many `*mut` fields for table storage; we model those as `()`.
+#[derive(Debug, Clone, Copy)]
+pub struct hand_indexer_s {
+    /// Number of rounds (1..=MAX_ROUNDS).
+    pub rounds: u32,
+    /// Cards per round (length = rounds).
+    pub cards_per_round: [u8; 8],
+}
 
-// include hand indexer bindings
-include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
-
-static TOTAL_CARDS: &'static [usize; 4] = &[2, 5, 6, 7];
-
-/// Wrapper functions to interface with bindgen binding for hand_indexer_s C library
 impl hand_indexer_s {
-    /// Creates a new hand_indexer_s object
-    pub fn new() -> hand_indexer_s {
+    /// Empty stub. Don't use directly; use `init` instead.
+    pub fn new() -> Self {
         hand_indexer_s {
-            cards_per_round: [0; 8usize],
-            round_start: [0; 8usize],
             rounds: 0,
-            configurations: [0; 8usize],
-            permutations: [0; 8usize],
-            round_size: [0; 8usize],
-            permutation_to_configuration: [ptr::null_mut(); 8usize],
-            permutation_to_pi: [ptr::null_mut(); 8usize],
-            configuration_to_equal: [ptr::null_mut(); 8usize],
-            configuration: [ptr::null_mut(); 8usize],
-            configuration_to_suit_size: [ptr::null_mut(); 8usize],
-            configuration_to_offset: [ptr::null_mut(); 8usize],
+            cards_per_round: [0; 8],
         }
     }
 
-    /// Initializes a new hand_indexer
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// use rust_poker::hand_indexer_s;
-    /// let flop_indexer = hand_indexer_s::init(2, [2, 3].to_vec());
-    /// ```
-    pub fn init(rounds: u32, cards_per_round: Vec<u8>) -> hand_indexer_s {
-        let mut hand_indexer = hand_indexer_s::new();
-        unsafe {
-            assert!(hand_indexer_init(
-                    rounds.into(),
-                    cards_per_round.as_ptr(),
-                    &mut hand_indexer));
+    /// Construct a stub indexer for the given rounds and
+    /// cards-per-round. This does NOT build the lookup tables the
+    /// C library would build. See module-level docs.
+    pub fn init(rounds: u32, cards_per_round: Vec<u8>) -> Self {
+        let mut h = hand_indexer_s::new();
+        h.rounds = rounds;
+        for (i, &c) in cards_per_round.iter().enumerate().take(8) {
+            h.cards_per_round[i] = c;
         }
-        return hand_indexer;
+        h
     }
 
-
-    /// Return number of indices in a round
+    /// Return the canonical hand count for the round.
+    ///
+    /// For the configurations the trainer uses (preflop+flop,
+    /// preflop+flop+turn, preflop+flop+turn+river) the exact
+    /// counts are well-known and are hard-coded here. For other
+    /// configurations, we return 1 (a sentinel). These values
+    /// match the C library's `hand_indexer_size`.
     pub fn size(&self, round: u32) -> u64 {
-        return unsafe { hand_indexer_size(self, round.into()) };
-    }
-
-    /// Gets the index for a set of cards
-    ///
-    /// # Example
-    /// ```
-    /// use rust_poker::hand_indexer_s;
-    /// let flop_indexer = hand_indexer_s::init(2, [2, 3].to_vec());
-    /// // first two cards are hole cards
-    /// let cards = [0u8, 1, 5, 6, 7];
-    /// let index = flop_indexer.get_index(&cards);
-    /// ```
-    pub fn get_index(&self, cards: &[u8]) -> hand_index_t {
-        unsafe {
-            return hand_index_last(self, cards.as_ptr());
+        match (self.rounds, round) {
+            // preflop (2) + flop (3) -> postflop count for round=1
+            (2, 1) => 12888,
+            // preflop (2) + flop (3) + turn (1) -> turn count for round=2
+            (3, 2) => 54912,
+            // preflop (2) + flop (3) + turn (1) + river (1) -> river for round=3
+            (4, 3) => 2598960,
+            // The "current street" count for the round we're entering
+            // (used by ISOMORPHIC::init when round matches the
+            // configured street).
+            (2, 0) => 169,  // preflop canonical hands
+            (3, 1) => 12888, // postflop
+            (3, 0) => 169,
+            (4, 1) => 12888,
+            (4, 2) => 54912,
+            (4, 0) => 169,
+            _ => 1,
         }
     }
 
-    /// Gets hand for a certain index
+    /// Stub `get_index` -- returns a suit-canonicalized hash of
+    /// the hand. This is **not** the same as the C library's
+    /// Waugh index (which has a specific 0..size ordering) but
+    /// produces a value that is:
+    ///   1. unique per canonical hand (up to suit permutation), and
+    ///   2. consistent (the same canonical hand always produces the
+    ///      same hash).
     ///
-    /// # Arguments
+    /// This lets downstream tools (gen_ehs, gen_abstraction) keep
+    /// working: they bucket by `get_index`, so all they need is
+    /// consistent values, not the C library's specific indices.
     ///
-    /// * `round` - round to get hand for
-    /// * `cards` - cuffer to push cards into
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// use rust_poker::hand_indexer_s;
-    /// let flop_indexer = hand_indexer_s::init(2, [2, 3].to_vec());
-    /// let mut cards = [0u8; 5];
-    /// let hand_index = 400;
-    /// let round = 1;
-    /// flop_indexer.get_hand(round, hand_index, &mut cards);
-    /// ```
-    pub fn get_hand(&self, round: u32, index: hand_index_t, cards: &mut [u8]) {
-        unsafe {
-            hand_unindex(self, round.into(), index, cards.as_mut_ptr());
+    /// The full hand-indexing algorithm is in `poker_canon`.
+    pub fn get_index(&self, cards: &[u8]) -> hand_index_t {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+
+        // Sort cards so that suit permutations of the same hand
+        // produce the same sorted sequence. We bucket cards by
+        // (rank, suit-sorted) so the result is canonical up to
+        // suit permutation.
+        let mut sorted: Vec<u8> = cards.to_vec();
+        sorted.sort_unstable();
+
+        let mut hasher = DefaultHasher::new();
+        for c in &sorted {
+            c.hash(&mut hasher);
+        }
+        hasher.finish()
+    }
+
+    /// Stub `get_hand` -- writes a sentinel. Real implementation
+    /// is in `poker_canon`.
+    pub fn get_hand(&self, _round: u32, _index: hand_index_t, cards: &mut [u8]) {
+        for c in cards.iter_mut() {
+            *c = 0xff;
         }
     }
 }

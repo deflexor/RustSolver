@@ -4,12 +4,16 @@ version = "0.1.5"
 authors = ["ruffers9 <kwmurph2@asu.edu>"]
 repository = "https://github.com/ruffers9/rust_poker"
 description = "Rust poker library"
-license = "MIT"
+license = "Mit"
 edition = "2018"
 
-[build-dependencies]
-bindgen = "0.53.1"
-cmake = "0.1"
+# Build dependencies removed: bindgen and cmake are no longer needed
+# because the C hand_indexer library was replaced by a pure-Rust
+# stub in src/hand_indexer.rs. See vendor/rust_poker/README.md and
+# crates/poker_canon/ in the parent repo for the full Rust reimplementation.
+# [build-dependencies]
+# bindgen = "0.53.1"
+# cmake = "0.1"
 
 [dependencies]
 lazy_static = "1.4.0"

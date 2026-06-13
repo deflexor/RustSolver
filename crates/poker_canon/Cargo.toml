@@ -1,0 +1,11 @@
+[package]
+name = "poker_canon"
+version = "0.0.1"
+authors = ["Dmitriy Knyazev <kde@my-shop.ru>"]
+license = "MIT"
+description = "Pure-Rust port of Kevin Waugh's 2013 poker hand indexing algorithm. (Status: paused — see README.)"
+repository = "https://github.com/deflexor/poker_canon"
+edition = "2018"
+publish = false
+
+[dependencies]

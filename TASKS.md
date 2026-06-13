@@ -25,10 +25,10 @@ this can be re-imported into a tracker later).
 | P0.3 | Fix `kmeans::fit_growbatch` early-stop: remove trailing `break;`; add a test that exercises 5+ iterations on synthetic data | 120 | - | 0 | pending |
 | P0.4 | Strip dead commented-out code: `gen_ochs`, `gen_emd(turn/river, ...)` in `gen_abstraction/main.rs`; non-sampling `cfr()` path in `cfr.rs` (or refactor into a clean `FullCFR` module for Phase 6) | 60 | - | 2 | pending |
 | P0.5 | Smoke test: `train()` 10k iters asserts BR finite and `Infoset.regrets` mutates; verify `rust_poker 0.1.5` builds on current stable | 180 | P0.1, P0.3 | 0 | done |
-| P0.5a | `scripts/setup.sh` for cmake + libclang-dev + build-essential | 30 | - | 0 | done |
-| P0.5b | (Optional, alternative) Migrate solver from `rust_poker 0.1.5` to `rust_poker 0.1.14`. Pure Rust, but the public API was completely redesigned; call sites in 6 files need rewriting. **Recommendation:** not worth it; P0.5c is the better path. | 2400 | - | 3 | optional (declined) |
+| P0.5a | `scripts/setup.sh` for cmake + libclang-dev + build-essential (no longer required; build is now C-free) | 30 | - | 0 | done (obsolete) |
+| P0.5b | **Superseded** by the C-removal work. The C `hand_indexer` library has been **stubbed out** in the vendored rust_poker; the solver builds in ~4s without cmake/libclang. See `vendor/rust_poker/README.md`. | 2400 | - | 3 | declined |
 | P0.5c | Fix `rust_poker 0.1.5`'s `lazy_static!` thread-safety bug. Vendored fork at `vendor/rust_poker/`; both `lazy_static!` blocks (`CARDS` and `LOOKUP_TABLE`) replaced with `OnceLock`; 19 call sites updated to use `CARDS.get().expect("CARDS")[i]`; `init_cards()` exposed to pre-init the lookup tables from main. Wired up via `[patch.crates-io]`. | 240 | - | 0 | done |
-| P0.5b | (Optional, alternative) Migrate solver from `rust_poker 0.1.5` to `rust_poker 0.1.14`. 0.1.14 is pure Rust (no cmake/libclang) but its public API was completely redesigned; call sites in 6 files need rewriting. **Effort:** ~3-5 days. **Recommendation:** not worth it; install `libclang-dev` instead. | 2400 | - | 3 | optional |
+| P0.5d | Port the C `hand_indexer` algorithm to pure Rust as a publishable `poker_canon` crate at `crates/poker_canon/`. **Status: paused** (the C removal made this non-blocking). In-progress code at `crates/poker_canon/src/{deck,hand_indexer}.rs` has type errors that need fixing before it'll compile. | 2400 | - | 3 | paused |
 
 ## Phase 1 - N-player state, no Preflop, stack-cap
 
@@ -151,7 +151,7 @@ Phase 8 (independent; feeds runtime via Options::preflop_ranges)
 
 | Phase | Tasks | Sum estimate (min) |
 |-------|-------|--------------------|
-| 0     | 8     | 1050 (plus optional 2400 if P0.5b chosen) |
+| 0     | 9     | 3450 (incl. paused P0.5d at 2400) |
 | 1     | 7     | 1200               |
 | 1-prep| 1     | 180                |
 | 2     | 6     | 1080               |
@@ -161,7 +161,7 @@ Phase 8 (independent; feeds runtime via Options::preflop_ranges)
 | 6     | 5     | 1740               |
 | 7     | 5     | 1320               |
 | 8     | 2     | 420                |
-| **Total** | **46** | **~8880 min (~14.8 work-weeks at 10h/week)** |
+| **Total** | **47** | **~11280 min (~18.8 work-weeks at 10h/week)** |
 
 ## Why this file and not `bd`
 
