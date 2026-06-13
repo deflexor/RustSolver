@@ -9,6 +9,17 @@ file. Card abstraction pipeline is fully wired. Exploitability reported as a
 3-vector `eps = (eps_0, eps_1, eps_2)` plus `max(eps_i)`. Side pots use the
 **stack-cap** convention (no true side-pot bookkeeping).
 
+## Performance target (2026-Q2 revision)
+
+The 15-25BB use case is the dominant target: postflop-only heads-up NLHE
+at depths where 50-80% of terminal nodes are SHOWDOWN. The converged
+strategy must be available in **<1 minute per depth tier** on the 16-core
+desktop, with exploitability `max(eps_i) <= 5 mbb/h`. This drives a new
+focus on **per-iteration speed** in addition to the original
+exploitability convergence goal.
+
+Phase 9 (new) covers the speed work that the 15-25BB target demands.
+
 Companion task tracker: `TASKS.md`. The bd (beads) tracker was abandoned
 mid-setup because the embedded Dolt backend in this environment was
 unstable (lock contention, intermittent "no beads database found" errors).
@@ -147,6 +158,17 @@ After Phase 5, we should be able to:
 
 If the checkpoint fails by >10x, stop and debug before Phase 6.
 
+## Checkpoint: 15-25BB <1 minute per depth tier (Phase 9, post-P9.5)
+
+After Phase 9.5, we should be able to:
+- Train a 2p 15BB postflop solver to <50 mbb/h in <10 seconds
+- Train a 2p 25BB postflop solver to <5 mbb/h in <30 seconds
+- Train a 3p 25BB postflop solver to <10 mbb/h in <3 minutes
+- Run all 8 tiers {5, 8, 10, 12, 15, 18, 20, 25} in <10 minutes total
+
+If the checkpoint fails by >10x, the per-iteration profile is the
+debug target: regret-update vs. strategy-sample vs. leaf-eval.
+
 ### Phase 6 - 3p blueprint + safe search (2.5-3.5 weeks)
 
 - [ ] 3p reach-propagation test (write before implementation)
@@ -177,6 +199,62 @@ If the checkpoint fails by >10x, stop and debug before Phase 6.
 - [ ] `ranges/BB_defend.json`: defending distribution when BB acts first
 - [ ] Loader: `Options::preflop_ranges = load_ranges(path)`
 
+### Phase 9 - Speed & precision for 15-25BB (1-2 weeks, **priority 0**)
+
+Drives the 15-25BB use case. Each task is small and independent; do in
+this order for compounding gains.
+
+- [ ] **P9.1** Real hand evaluation in terminal walker (Phase 5 work,
+      2-3 days). Wire `rust_poker::hand_evaluator::Evaluator` into
+      `abstract_br_terminal` / `abstract_ev_terminal` so SHOWDOWN leaves
+      return the actual hand-vs-hand winner. Thread `Hand` (both players'
+      hole cards + 5 board cards) into the terminal walker. ALLIN leaves
+      keep the precomputed `tn.value` path (correct by construction). Add
+      2-3 unit tests using known hand ranks (AA vs 22 = AA wins, AKs vs
+      72o = AKs wins, etc.).
+- [ ] **P9.2** Per-bucket reach (1 day). Add
+      `ICardAbstraction::bucket_count(player) -> usize`. The stub's
+      `hand_indexer_s::size()` returns 12888 for flop, 54912 for turn, so
+      the count is `size[1]` and `size[2]` respectively. Change
+      `initial_reach()` from `vec![vec![1.0]; n_players]` to
+      `vec![vec![1.0 / bucket_count(p)]; n_players]`. `calc_br`/`calc_ev`
+      already loop `for b in 0..res[p].len()` so the work is plumbing.
+      This brings absolute exploitability values down by 12888x (from
+      ~55000 mbb/h to ~5 mbb/h for a 1M-iter run).
+- [ ] **P9.3** `rayon` parallel MCCFR walker (1 hour). The current
+      trainer is single-threaded over leaves. `rayon::par_iter()` over the
+      leaf batch gives near-linear scaling on the 16-core box. `rayon` is
+      already a transitive dep; only `use rayon::prelude::*` is needed.
+      ~16x speedup.
+- [ ] **P9.4** Pre-built abstract game tree cache (0.5 day). Build the
+      full game tree once at trainer init; serialize to `game_tree.bin`;
+      MCCFR iterates over a `Vec<NodeId>` rather than reconstructing. The
+      trainer already builds the tree once, so this is mostly a refactor
+      for cache locality. ~2-3x speedup.
+- [ ] **P9.5** External-sampling MCCFR (1 day). Replace the alternating
+      player-update pattern with Lanctot et al. 2009's external-sampling:
+      one player is the "regret-updating" player, opponents' actions are
+      sampled from their strategy, all players updated in a single walk.
+      4-6x algorithmic speedup.
+- [ ] **P9.6** Action abstraction presets (0.5 day). Per-street
+      `Options::action_sizes: HashMap<Round, Vec<f32>>`. Flop: `[0.33,
+      0.5, 0.75, 1.0, all-in]`. Turn/River: `[0.5, 0.75, 1.0, 1.5, 2.0,
+      all-in]`. Cuts leaves 2-3x with no measurable exploitability loss.
+- [ ] **P9.7** 2p 15BB / 25BB benchmark suite (0.5 day). Reproducible
+      timing: 1M iters, single-thread baseline; with P9.3+P9.4 applied,
+      target <30 seconds per depth tier to <50 mbb/h. Print
+      `convergence.jsonl` summary table. This is the "speed checkpoint".
+
+**Combined effect (cumulative):**
+
+| Steps applied | 2p 25BB to ≤5 mbb/h | 3p 25BB to ≤10 mbb/h |
+|---------------|----------------------|-----------------------|
+| Today (post-Phase 5) | ~10-30 min | ~2-8 hours |
+| + P9.3 rayon (16x) | ~30 sec – 2 min | ~5-30 min |
+| + P9.4 tree cache (3x) | ~10-30 sec | ~2-10 min |
+| + P9.5 external-sample (5x) | **~3-10 sec** | **~30 sec – 3 min** |
+| + P9.6 action ab (2x) | ~1-5 sec | ~15-90 sec |
+
 ## Total effort
 
 | Phase | Best  | Realistic | Pessimistic |
@@ -190,7 +268,8 @@ If the checkpoint fails by >10x, stop and debug before Phase 6.
 | 6     | 2.5w  | 3.5w      | 5w          |
 | 7     | 1w    | 1.5w      | 2.5w        |
 | 8     | 0.5w  | 0.5w      | 1w          |
-| **Total** | **~9w** | **~13w** | **~19w** |
+| 9     | 1w    | 1.5w      | 2.5w        |
+| **Total** | **~10w** | **~14.5w** | **~21.5w** |
 
 ## Risks
 
@@ -203,6 +282,20 @@ If the checkpoint fails by >10x, stop and debug before Phase 6.
 4. **3p constant-sum convention**: subtle. Math preamble doc + reach test
    before Phase 6.1.
 5. **Disk format**: choose `bincode` once (Phase 4), not later.
+6. **15-25BB exploitability precision**: the SHOWDOWN-leaf placeholder
+   used in the BR/EV walker (post-Phase 4 commit `950c27f`) is structurally
+   correct (zero-sum, comparable magnitude to EV) but uses "player 0 always
+   wins" as a stand-in for real hand evaluation. Absolute values are
+   10000x off the target. **P9.1 (real hand eval) is the unblocking step**
+   for any quantitative convergence claim.
+7. **Hand-indexer stub disables EMD pipeline**: the stub
+   `hand_indexer_s::size()` returns hard-coded values, and `get_index`
+   returns a `DefaultHasher` hash. Tools that enumerate 0..N hand indices
+   (`gen_ehs`, `gen_abstraction`) panic or return garbage. The trainer
+   works because it draws hands from `hand_ranges` (valid preflop combos)
+   and never enumerates. **Resuming P0.5d (`crates/poker_canon/`) or
+   shipping a real Waugh-style indexer is the unblocking step for EMD
+   flop/turn/river (Phase 2).**
 
 ## `convergence.json` schema
 

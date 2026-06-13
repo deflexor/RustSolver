@@ -65,13 +65,13 @@ this can be re-imported into a tracker later).
 
 ## Phase 4 - Exploitability, BR, CFR+
 
-| ID | Title | Est (min) | Deps | Priority |
-|----|-------|-----------|------|----------|
-| P4.1 | Replace `unsafe` raw-pointer discount thread with `crossbeam::channel::bounded(1)` snapshot pattern; remove UB | 240 | phase-1 | 0 |
-| P4.2 | `br_2p` and `br_3p` modules: per-player BR; `br_2p` returns `(ev0, ev1)`, `br_3p` returns `(br0, br1, br2)`; tested against a known toy tree | 360 | P4.1 | 0 |
-| P4.3 | `convergence.json` writer: per-1% emit `{iter, t_seconds, depth_tier_bb, n_players, ev, best_response, exploitability_mbb_per_hand, exploitability_max, memory_mb, n_threads}`; schema in `PLAN.md` | 180 | P4.2 | 0 |
-| P4.4 | CFR+ for 2p: regret floor at 0, weighted by iteration count; verify 2-5x speedup on turn-river scenario | 180 | P4.1 | 2 |
-| P4.5 | CLI flags `--target-exploitability-mbb`, `--max-iter`; stop when `max(eps_i) <= target` OR `iter >= max-iter`; emit final `convergence.json` with `stop_reason` | 120 | P4.3 | 2 |
+| ID | Title | Est (min) | Deps | Priority | Status |
+|----|-------|-----------|------|----------|--------|
+| P4.1 | Atomic `Infoset` (Box<[AtomicI32]> regrets / strategy_sum); replace `unsafe` raw-pointer discount thread with `crossbeam::channel::bounded(1)` snapshot pattern; remove UB | 240 | phase-1 | 0 | done |
+| P4.2 | `calc_br()` and `calc_ev()` per-player walkers; `abstract_br_infoset`, `abstract_ev_infoset`, `abstract_br_terminal`, `abstract_ev_terminal`; placeholder for SHOWDOWN/ALLIN leaves | 360 | P4.1 | 0 | done (placeholder) |
+| P4.3 | `convergence.jsonl` writer: per-N iters emit `{iter, t_seconds, depth_tier_bb, n_players, ev, best_response, exploitability_mbb_per_hand, exploitability_max, memory_mb, n_threads, schema_version, stop_reason}`; 12-field v1.0 schema | 180 | P4.2 | 0 | done |
+| P4.4 | CFR+ for 2p: regret floor at 0; weighted strategy_sum by iter_t is approximate (multiplier=1) — full weighted version is P9.8 | 180 | P4.1 | 2 | done (partial) |
+| P4.5 | CLI flags `--max-iter`, `--target-mbb`, `--convergence-interval`, `--convergence-path`, `--cfr-plus` / `--no-cfr-plus`; `parse_cli()` in main; hand-rolled (no clap) | 120 | P4.3 | 2 | done |
 
 ## Phase 5 - Threading & memory
 
@@ -115,6 +115,35 @@ debug before Phase 6.
 | P8.1 | `ranges/BTN_vs_SB_BB_3p.json`: 169-hand distribution per position for 3p; document source (GTO+ data, manual, or hand-history mining) | 240 | - | 3 |
 | P8.2 | `ranges/BB_defend.json` + `load_ranges(path)` wired into `Options::preflop_ranges` | 180 | P8.1 | 3 |
 
+## Phase 9 - Speed & precision for 15-25BB (priority 0)
+
+Drives the 15-25BB use case: <1 minute per depth tier on the 16-core
+desktop, exploitability `max(eps_i) <= 5 mbb/h`. Each task is small and
+independent; do in this order for compounding gains.
+
+| ID | Title | Est (min) | Deps | Priority |
+|----|-------|-----------|------|----------|
+| P9.1 | Real hand evaluation in terminal walker: wire `rust_poker::hand_evaluator::Evaluator` into `abstract_br_terminal` / `abstract_ev_terminal`; thread `Hand` (both players' hole cards + 5 board cards) into the walker; ALLIN leaves keep precomputed `tn.value`; 2-3 unit tests with known hand ranks | 1440 | phase-1, P4.2 | 0 |
+| P9.2 | Per-bucket reach: add `ICardAbstraction::bucket_count(player) -> usize`; change `initial_reach()` from `vec![vec![1.0]; n_players]` to `vec![vec![1.0 / bucket_count(p)]; n_players]`; verify `calc_br`/`calc_ev` divide by reach correctly | 240 | P9.1 | 0 |
+| P9.3 | `rayon` parallel MCCFR walker: `use rayon::prelude::*`; `par_iter()` over leaf batch; verify 16-core scaling >80% | 60 | P9.1 | 0 |
+| P9.4 | Pre-built abstract game tree cache: build full tree once at trainer init; serialize `game_tree.bin`; MCCFR iterates pre-built `Vec<NodeId>` | 240 | P9.1 | 0 |
+| P9.5 | External-sampling MCCFR (Lanctot et al. 2009): one player is the regret-updating player, opponents' actions sampled from their strategy, all players updated in a single walk | 480 | P9.3 | 0 |
+| P9.6 | Action abstraction presets: `Options::action_sizes: HashMap<Round, Vec<f32>>`; Flop `[0.33, 0.5, 0.75, 1.0, all-in]`; Turn/River `[0.5, 0.75, 1.0, 1.5, 2.0, all-in]` | 240 | phase-1 | 1 |
+| P9.7 | 2p 15BB / 25BB benchmark suite: reproducible timing; target <30 sec per tier to <50 mbb/h post-P9.5; print `convergence.jsonl` summary table | 240 | P9.5 | 0 |
+| P9.8 | CFR+ weighted strategy_sum by iter_t (proper version); thread the iteration counter through `mccfr`; verify strategy_sum weights are correct (current P4.4 is multiplier=1) | 180 | P4.4, P9.3 | 1 |
+| P9.9 | Unit test for CFR+ regret-floor-at-zero behavior (verifies `floor_regrets_at_zero()` actually clamps to 0) | 60 | P4.4 | 1 |
+| P9.10 | Bench harness: `cargo bench --bench mccfr` with criterion; per-tier throughput (iters/sec) and exploitability curve | 240 | P9.7 | 2 |
+
+## Checkpoint: 15-25BB <1 minute per depth tier (Phase 9.5)
+
+After Phase 9.5, the 2p postflop solver must hit:
+- 15BB: `exploitability_max < 50 mbb/h` in <10 seconds
+- 25BB: `exploitability_max < 5 mbb/h` in <30 seconds
+- 3p 25BB: `exploitability_max < 10 mbb/h` in <3 minutes
+
+If 10x off, the per-iteration profile (regret-update vs strategy-sample
+vs leaf-eval) is the debug target.
+
 ---
 
 ## Cross-phase dependency summary
@@ -133,17 +162,23 @@ Phase 1
    +--> Phase 3
    |       |
    |       v
-   +--> Phase 4
+   +--> Phase 4 (atomic Infoset, BR/EV walkers, convergence, CFR+)
            |
            v
-         Phase 5
+         Phase 5 (memory, threading, OOM guards)
            |
            v
-         Phase 6
+         Phase 6 (3p blueprint + safe search)
            |
            v
-         Phase 7
-           
+         Phase 7 (per-tier runner, validation)
+           |
+           v
+         Phase 9 (speed & precision for 15-25BB; depends on P4.2 for hand-eval work)
+           |
+           v
+         (final benchmark + tier sweep)
+
 Phase 8 (independent; feeds runtime via Options::preflop_ranges)
 ```
 
@@ -156,12 +191,20 @@ Phase 8 (independent; feeds runtime via Options::preflop_ranges)
 | 1-prep| 1     | 180                |
 | 2     | 6     | 1080               |
 | 3     | 3     | 420                |
-| 4     | 5     | 1080               |
+| 4     | 5     | 1080 (done)        |
 | 5     | 4     | 660                |
 | 6     | 5     | 1740               |
 | 7     | 5     | 1320               |
 | 8     | 2     | 420                |
-| **Total** | **47** | **~11280 min (~18.8 work-weeks at 10h/week)** |
+| 9     | 10    | 3420               |
+| **Total** | **57** | **~14700 min (~24.5 work-weeks at 10h/week)** |
+
+## Performance budget (2026-Q2 revision)
+
+The 15-25BB use case demands <1 minute per depth tier. Phase 9 is
+the speed work that makes this possible. The steps in P9.1-P9.7 are
+additive: each one alone gives a measurable speedup; combined, they
+target 100-300x total over the post-Phase 4 baseline.
 
 ## Why this file and not `bd`
 
