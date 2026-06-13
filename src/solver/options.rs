@@ -82,7 +82,38 @@ impl Options {
     }
 }
 
+/// Default 2p postflop scenario. Starts on the **flop** with 3
+/// community cards. Symmetric 100bb stacks (100 chips per BB at 1BB =
+/// 1 chip), 1.5BB pot, random hand ranges, one bet size and one
+/// raise size per street.
 pub fn default_flop() -> Options {
+    Options {
+        n_players: 2,
+        stack_sizes: vec![10000, 10000],
+        board_mask: get_card_mask("4d5dAs"),
+        starting_pot: 150,
+        all_in_threshold: 0.67,
+        max_raises: 2,
+        hand_ranges: vec![
+            HandRange::from_string("random".to_string()),
+            HandRange::from_string("random".to_string()),
+        ],
+        action_abstraction: ActionAbstraction {
+            bet_sizes: vec![vec![0.5, 1.0], vec![0.5, 1.0], vec![0.5, 1.0]],
+            raise_sizes: vec![vec![3.0], vec![3.0], vec![3.0]],
+        },
+        depth_tier_bb: 100,
+        postflop_pot_override: None,
+        rake: None,
+        max_action_sequences_per_street: 200,
+    }
+}
+
+/// Pre-P0.5 default scenario: 2p, 5 community cards (turn-river
+/// decision), 5BB stacks, 35-chip pot. Retained for the existing
+/// tests (which were written against this scenario before the
+/// flop-stack scenario was added).
+pub fn default_turn() -> Options {
     Options {
         n_players: 2,
         stack_sizes: vec![500, 500],
@@ -95,12 +126,8 @@ pub fn default_flop() -> Options {
             HandRange::from_string("random".to_string()),
         ],
         action_abstraction: ActionAbstraction {
-            bet_sizes: vec![
-                vec![0.5, 1.0],
-            ],
-            raise_sizes: vec![
-                vec![3.0],
-            ],
+            bet_sizes: vec![vec![0.5, 1.0]],
+            raise_sizes: vec![vec![3.0]],
         },
         depth_tier_bb: 5,
         postflop_pot_override: None,

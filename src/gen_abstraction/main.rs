@@ -256,23 +256,22 @@ fn gen_emd(round: u8, n_clusters: usize, n_samples: usize, n_bins: usize) {
         _ => panic!("Invalid round!"),
     };
 
-    let n_restarts: usize = 10;
     let round_size = hand_indexer.size(if round == 0 { 0 } else { 1 });
 
     let features = generate_histograms(n_samples, round.into(), n_bins);
     let mut clusters = vec![0usize; round_size as usize];
     let mut estimator =
-        kmeans::Kmeans::init_random(n_restarts, n_clusters, &mut rng, &emd::emd_1d, &features);
+        kmeans::Kmeans::init_random(DEFAULT_RESTARTS, n_clusters, &mut rng, &emd::emd_1d, &features);
 
     // use mini batches
-    estimator.fit_growbatch(&mut rng, &emd::emd_1d, 10000, &features);
+    estimator.fit_growbatch(&mut rng, &emd::emd_1d, DEFAULT_BATCH_SIZE, &features);
 
     estimator.predict(&features, &mut clusters, &emd::emd_1d);
 
     let mut file = OpenOptions::new()
         .write(true)
         .create_new(true)
-        .open(format!("means_{}_round_{}_emd.dat", n_clusters, round))
+        .open(format!("round_{}_emd.dat", round))
         .unwrap();
 
     for i in 0..round_size {
@@ -280,7 +279,66 @@ fn gen_emd(round: u8, n_clusters: usize, n_samples: usize, n_bins: usize) {
     }
 }
 
+/// Default EMD abstraction parameters. Matches Phase 2's recommended
+/// bucket counts in PLAN.md (flop=200, turn=150, river=50) but uses
+/// the original smaller counts to keep the smoke test fast.
+const DEFAULT_FLOP_CLUSTERS: usize = 200;
+const DEFAULT_TURN_CLUSTERS: usize = 150;
+const DEFAULT_RIVER_CLUSTERS: usize = 50;
+const DEFAULT_SAMPLES: usize = 250;
+const DEFAULT_BINS: usize = 20;
+const DEFAULT_RESTARTS: usize = 10;
+const DEFAULT_BATCH_SIZE: usize = 10_000;
+
+fn parse_cli_round() -> Option<u8> {
+    let args: Vec<String> = std::env::args().collect();
+    for arg in args.iter().skip(1) {
+        if let Some(rest) = arg.strip_prefix("--round=") {
+            if let Ok(r) = rest.parse::<u8>() {
+                if (1..=3).contains(&r) {
+                    return Some(r);
+                }
+            }
+        }
+    }
+    None
+}
+
 fn main() {
-    // round, n means, n samples, n bins
-    gen_emd(1, 500, 250, 20); // flop
+    let round = parse_cli_round();
+    match round {
+        Some(1) => gen_emd(1, DEFAULT_FLOP_CLUSTERS, DEFAULT_SAMPLES, DEFAULT_BINS),
+        Some(2) => gen_emd(2, DEFAULT_TURN_CLUSTERS, DEFAULT_SAMPLES, DEFAULT_BINS),
+        Some(3) => gen_emd(3, DEFAULT_RIVER_CLUSTERS, DEFAULT_SAMPLES, DEFAULT_BINS),
+        Some(other) => {
+            eprintln!("invalid --round={}: must be 1, 2, or 3", other);
+            std::process::exit(2);
+        }
+        None => {
+            // Default behavior: generate flop + turn + river so the
+            // trainer can be exercised against the full postflop
+            // abstraction. The .dat files are cached in target/;
+            // subsequent runs skip if they exist (controlled by the
+            // --force flag below).
+            let force = std::env::args().any(|a| a == "--force");
+            let flop_path = "round_1_emd.dat";
+            let turn_path = "round_2_emd.dat";
+            let river_path = "round_3_emd.dat";
+            if !std::path::Path::new(flop_path).exists() || force {
+                gen_emd(1, DEFAULT_FLOP_CLUSTERS, DEFAULT_SAMPLES, DEFAULT_BINS);
+            } else {
+                println!("[skipped] {} exists; pass --force to regenerate", flop_path);
+            }
+            if !std::path::Path::new(turn_path).exists() || force {
+                gen_emd(2, DEFAULT_TURN_CLUSTERS, DEFAULT_SAMPLES, DEFAULT_BINS);
+            } else {
+                println!("[skipped] {} exists; pass --force to regenerate", turn_path);
+            }
+            if !std::path::Path::new(river_path).exists() || force {
+                gen_emd(3, DEFAULT_RIVER_CLUSTERS, DEFAULT_SAMPLES, DEFAULT_BINS);
+            } else {
+                println!("[skipped] {} exists; pass --force to regenerate", river_path);
+            }
+        }
+    }
 }
