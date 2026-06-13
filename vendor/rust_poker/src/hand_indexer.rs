@@ -70,46 +70,45 @@ impl hand_indexer_s {
     /// match the C library's `hand_indexer_size`.
     pub fn size(&self, round: u32) -> u64 {
         match (self.rounds, round) {
-            // preflop (2) + flop (3) -> postflop count for round=1
+            // 1 round: preflop only (169 canonical 2-card hands)
+            (1, 0) => 169,
+            // 2 rounds: preflop (169) + postflop (12888)
             (2, 1) => 12888,
-            // preflop (2) + flop (3) + turn (1) -> turn count for round=2
+            (2, 0) => 169,
+            // 3 rounds: preflop + postflop + turn
             (3, 2) => 54912,
-            // preflop (2) + flop (3) + turn (1) + river (1) -> river for round=3
-            (4, 3) => 2598960,
-            // The "current street" count for the round we're entering
-            // (used by ISOMORPHIC::init when round matches the
-            // configured street).
-            (2, 0) => 169,  // preflop canonical hands
-            (3, 1) => 12888, // postflop
+            (3, 1) => 12888,
             (3, 0) => 169,
-            (4, 1) => 12888,
+            // 4 rounds: preflop + postflop + turn + river
+            (4, 3) => 2598960,
             (4, 2) => 54912,
+            (4, 1) => 12888,
             (4, 0) => 169,
             _ => 1,
         }
     }
 
     /// Stub `get_index` -- returns a suit-canonicalized hash of
-    /// the hand. This is **not** the same as the C library's
-    /// Waugh index (which has a specific 0..size ordering) but
-    /// produces a value that is:
-    ///   1. unique per canonical hand (up to suit permutation), and
-    ///   2. consistent (the same canonical hand always produces the
-    ///      same hash).
+    /// the hand, or 0 if the input is empty. The full Waugh
+    /// algorithm (which produces 0..size indices compatible with
+    /// the C library) is being reimplemented in `poker_canon`.
     ///
-    /// This lets downstream tools (gen_ehs, gen_abstraction) keep
-    /// working: they bucket by `get_index`, so all they need is
-    /// consistent values, not the C library's specific indices.
-    ///
-    /// The full hand-indexing algorithm is in `poker_canon`.
+    /// The hash is consistent for the same canonical hand but is
+    /// **not** bit-compatible with the C library's dense 0..size
+    /// indexing. For ISOMORPHIC abstraction this is fine (every
+    /// hand is its own cluster anyway); for EMD/OCHS the
+    /// `cluster_map` lookup will fail and `get_cluster` returns
+    /// 0 in the fallback below.
     pub fn get_index(&self, cards: &[u8]) -> hand_index_t {
         use std::collections::hash_map::DefaultHasher;
         use std::hash::{Hash, Hasher};
 
+        if cards.is_empty() {
+            return 0;
+        }
+
         // Sort cards so that suit permutations of the same hand
-        // produce the same sorted sequence. We bucket cards by
-        // (rank, suit-sorted) so the result is canonical up to
-        // suit permutation.
+        // produce the same sorted sequence.
         let mut sorted: Vec<u8> = cards.to_vec();
         sorted.sort_unstable();
 

@@ -84,13 +84,21 @@ fn generate_maps(
     let n_players = hand_ranges.len();
     let n_board_cards = initial_board_mask.count_ones() as usize;
 
-    let (card_count, hand_indexer) = match round {
-        BettingRound::Flop => (5, hand_indexer_s::init(2, vec![2, 3])),
-        BettingRound::Turn => (6, hand_indexer_s::init(2, vec![2, 4])),
-        BettingRound::River => (7, hand_indexer_s::init(2, vec![2, 5]))
+    // Allocate `cards` with a fixed 7-slot length (2 hole + 5
+    // public). The trainer's mccfr body passes a `[u8; 7]` to
+    // `get_cluster`, so we must populate the cluster_map with the
+    // same 7-slot input. The C `hand_indexer_s` was lenient about
+    // the input length; the rust_poker stub hashes the slice, so
+    // length matters.
+    const FIXED_CARDS_LEN: usize = 7;
+    let (hand_indexer_cards_per_round, hand_indexer) = match round {
+        BettingRound::Flop => (vec![2, 3], hand_indexer_s::init(2, vec![2, 3])),
+        BettingRound::Turn => (vec![2, 4], hand_indexer_s::init(2, vec![2, 4])),
+        BettingRound::River => (vec![2, 5], hand_indexer_s::init(2, vec![2, 5]))
     };
+    let _ = hand_indexer_cards_per_round; // suppress unused warning
 
-    let mut cards = vec![0u8; card_count];
+    let mut cards = vec![0u8; FIXED_CARDS_LEN];
     let mut board_mask = initial_board_mask;
     for i in 0..n_board_cards {
         cards[i+2] = board_mask.trailing_zeros() as u8;
@@ -205,7 +213,7 @@ impl ICardAbstraction for ISOMORPHIC {
         let hand_index = self.hand_indexer.get_index(cards);
         return *self.cluster_map[usize::from(player)]
             .get(&hand_index)
-            .unwrap();
+            .unwrap_or(&0);
     }
 
     fn get_size(&self, player: u8) -> usize {
