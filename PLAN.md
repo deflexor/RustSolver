@@ -1,13 +1,41 @@
-# RustSolver — 3p, asymmetric stacks, fixed preflop range
+# RustSolver — postflop MCCFR solver + Python runtime
 
-## Goal
+## Goal (2026-Q3 revision — **current north star**)
 
-Extend `RustSolver` from "2-player postflop research skeleton" to a usable
-postflop-only MCCFR solver for **3 players**, with **discrete depth tiers**
-{5, 8, 10, 12, 15, 18, 20, 25} BB and **fixed preflop ranges** loaded from
-file. Card abstraction pipeline is fully wired. Exploitability reported as a
-3-vector `eps = (eps_0, eps_1, eps_2)` plus `max(eps_i)`. Side pots use the
-**stack-cap** convention (no true side-pot bookkeeping).
+Ship a **fast, low-exploitability** postflop solver as a **Python library**
+(`rust_solver_py` via PyO3 + maturin) that replaces rjeans `solver_ext` in
+the TUI/policy stack. **We do not need parity with rjeans** (PostFlopGame
+CFR); we need **winning, hard-to-exploit decisions under a time budget**.
+
+| Priority | Target |
+|----------|--------|
+| 1 | **Decision quality** — converged strategy at query time, not uniform fallbacks |
+| 2 | **Speed** — beat rjeans wall-clock on real spots (KK turn: **~11×** already) |
+| 3 | **Python UX** — `uv` venv + `maturin develop`; drop-in for `solver_decide` |
+| 4 | 3p / tier sweep / EMD abstraction — **after** 2p HU runtime is trustworthy |
+
+**Not ready for production Python yet** (Jul 2026): benchmark shows ~uniform
+action probs even at 20k MCCFR iters; exploitability stop is not trustworthy
+(SHOWDOWN placeholder in BR walker). See Phase 10 gate below.
+
+Companion task tracker: `TASKS.md`.
+
+### Session checkpoint (Jul 2026)
+
+- Added KK turn A/B harness: `kk_turn_bench`, `benchmarks/run_kk_turn_compare.py`
+- vs rjeans: **62 ms vs 711 ms**, but rust_solver top action ~uniform (0.33)
+- Fixed tree-builder blockers: `is_terminal()` (river after betting settles),
+  `street_closed()` (≤1 player can still bet)
+- Expanded OOP/IP ranges via postflop-solver → `benchmarks/kk_turn_expanded_combos.txt`
+
+---
+
+## Long-term goal (unchanged)
+
+Extend to **3 players**, discrete depth tiers {5, 8, 10, 12, 15, 18, 20, 25}
+BB, fixed preflop ranges, EMD abstraction, 3-vector exploitability. Side pots
+use **stack-cap** convention. Phases 1–9 below remain valid; **Phase 10–11
+are now the critical path** for the Python product.
 
 ## Performance target (2026-Q2 revision)
 
@@ -18,9 +46,10 @@ desktop, with exploitability `max(eps_i) <= 5 mbb/h`. This drives a new
 focus on **per-iteration speed** in addition to the original
 exploitability convergence goal.
 
-Phase 9 (new) covers the speed work that the 15-25BB target demands.
+Phase 9 covers speed work; **Phase 10** covers decision quality required
+before any Python ship.
 
-Companion task tracker: `TASKS.md`. The bd (beads) tracker was abandoned
+The bd (beads) tracker was abandoned
 mid-setup because the embedded Dolt backend in this environment was
 unstable (lock contention, intermittent "no beads database found" errors).
 The work is fully captured in `TASKS.md` and this plan.
@@ -50,6 +79,9 @@ The work is fully captured in `TASKS.md` and this plan.
 | D12 | Unsafe discount thread replaced with `crossbeam::channel` round-trip |
 | D13 | Sparse infoset allocation (only allocate boxes on first write) |
 | D14 | State persistence: `bincode` format for strategies + `convergence.json` for telemetry |
+| D15 | **Python runtime**: PyO3 crate `rust_solver_py`; build with maturin; consume via `uv` venv |
+| D16 | **Quality gate**: no Python release until benchmark spots pass exploitability + non-uniform strategy checks |
+| D17 | **Hero-exact query**: return strategy for the queried combo, not only abstract-bucket average |
 
 ## Phases
 
@@ -255,6 +287,51 @@ this order for compounding gains.
 | + P9.5 external-sample (5x) | **~3-10 sec** | **~30 sec – 3 min** |
 | + P9.6 action ab (2x) | ~1-5 sec | ~15-90 sec |
 
+### Phase 10 - Runtime decision quality (**priority 0**, blocks Python)
+
+Unblock trustworthy decisions before `rust_solver_py`. Order matters.
+
+- [ ] **P10.1** Real SHOWDOWN eval in BR/EV terminal walker (unblocks P9.1;
+      same work — wire `rust_poker::hand_evaluator::Evaluator`)
+- [ ] **P10.2** Per-bucket reach normalization (P9.2) — trustworthy `max(eps)`
+- [ ] **P10.3** **Hero-exact strategy at query**: given `hero_hand` + board,
+      return that combo's strategy (bypass uniform fallback for unvisited
+      abstract buckets); optional "exact combo" training mode for query spot
+- [ ] **P10.4** Convergence stop: train until `max(eps) ≤ target_mbb` or
+      `time_budget_ms`; expose in API (not fixed 200 iters)
+- [ ] **P10.5** Flop-entry solve + turn-card sampling (match TUI geometry:
+      pot/call at decision node); extend `benchmark/kk_turn` harness
+- [ ] **P10.6** PPT range parsing or postflop-solver range import (hyphen
+      syntax `QQ-22`, `A5s-A4s`); drop ad-hoc combo file when done
+- [ ] **P10.7** **Quality gate**: `benchmarks/kk_turn_*` asserts non-uniform
+      hero strategy, `exploitability_max < 50 mbb/h` (then tighten to 5)
+
+**Phase 10 gate (must pass before Phase 11):**
+
+On `benchmarks/kk_turn_040229_prompt.md` spot (stack 12, explicit OOP/IP
+ranges, turn cards `Kd`/`8s`):
+
+- `solve_elapsed_ms < 500` (speed — already met)
+- Top action score ≠ uniform (1/3); strategy visibly converged
+- `exploitability_max_mbb` finite and `< 50` (then `< 5` stretch)
+
+### Phase 11 - Python library (`rust_solver_py`) (**priority 0 after Phase 10**)
+
+- [ ] **P11.1** Crate `rust_solver_py/` with PyO3 + `pyproject.toml`
+      (maturin build-backend); `uv venv` + `maturin develop --release` docs
+- [ ] **P11.2** Minimal API first (not full `solver_ext` clone):
+      `solve_turn_decision(hero_hand, board, pot_bb, call_cost_bb,
+      eff_stack_bb, oop_range, ip_range, ...) -> Decision`
+- [ ] **P11.3** `TrainingSample` + `solve_flop_tree` compatibility layer for
+      `rjeans_tui/solver_decide.py` (if TUI still needs sample traversal)
+- [ ] **P11.4** `SolverSession` holder (reuse tree/range config across calls)
+- [ ] **P11.5** Integration test: import from uv venv, run KK spot, compare
+      to Phase 10 gate
+- [ ] **P11.6** Wire into rjeans TUI behind feature flag (`RUST_SOLVER=1`)
+
+**Explicitly deferred until Phase 10 passes:** shipping PyO3 bindings that
+wrap the current trainer — they would expose fast but exploitable play.
+
 ## Total effort
 
 | Phase | Best  | Realistic | Pessimistic |
@@ -269,7 +346,9 @@ this order for compounding gains.
 | 7     | 1w    | 1.5w      | 2.5w        |
 | 8     | 0.5w  | 0.5w      | 1w          |
 | 9     | 1w    | 1.5w      | 2.5w        |
-| **Total** | **~10w** | **~14.5w** | **~21.5w** |
+| 10    | 1w    | 2w        | 3w          |
+| 11    | 0.5w  | 1w        | 1.5w        |
+| **Total** | **~12w** | **~17.5w** | **~26w** |
 
 ## Risks
 
@@ -288,7 +367,11 @@ this order for compounding gains.
    wins" as a stand-in for real hand evaluation. Absolute values are
    10000x off the target. **P9.1 (real hand eval) is the unblocking step**
    for any quantitative convergence claim.
-7. **Hand-indexer stub disables EMD pipeline**: the stub
+7. **Uniform strategy at runtime (Jul 2026)**: KK turn benchmark stays at
+   ~33% / 33% / 33% through 20k MCCFR iters — external sampling + ISOMORPHIC
+   buckets + sparse unvisited clusters. **Phase 10.3 (hero-exact) is the
+   primary fix**; may also need more iters or less abstraction on query path.
+8. **Hand-indexer stub disables EMD pipeline**: the stub
    `hand_indexer_s::size()` returns hard-coded values, and `get_index`
    returns a `DefaultHasher` hash. Tools that enumerate 0..N hand indices
    (`gen_ehs`, `gen_abstraction`) panic or return garbage. The trainer

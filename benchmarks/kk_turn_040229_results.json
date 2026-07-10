@@ -1,0 +1,135 @@
+{
+  "rjeans": {
+    "solver": "rjeans_solver_ext",
+    "stack_bucket_bb": 12,
+    "solve_elapsed_ms": 710.9,
+    "total_samples": 5588,
+    "turn_boards_sampled": [
+      "8s",
+      "Kd"
+    ],
+    "matched_sample": {
+      "board": [
+        "4d",
+        "Qc",
+        "Qd",
+        "Kd"
+      ],
+      "pot_bb": 6.0,
+      "call_cost_bb": 2.0,
+      "action_probs": [
+        0.0,
+        0.5417773127555847,
+        0.45822271704673767
+      ],
+      "raise_probs": [
+        0.020071344450116158,
+        0.020071344450116158,
+        0.9397859573364258,
+        0.020071344450116158
+      ]
+    },
+    "decisions_ranked": [
+      {
+        "action": "call",
+        "raise_to_bb": null,
+        "score": 0.541777
+      },
+      {
+        "action": "raise",
+        "raise_to_bb": 6.16,
+        "score": 0.430631
+      },
+      {
+        "action": "raise",
+        "raise_to_bb": 3.08,
+        "score": 0.009197
+      },
+      {
+        "action": "raise",
+        "raise_to_bb": 4.62,
+        "score": 0.009197
+      }
+    ]
+  },
+  "rust_solver": {
+    "decisions_ranked": [
+      {
+        "action": "call",
+        "raise_to_bb": null,
+        "rank": 1,
+        "score": 0.3333333432674408
+      },
+      {
+        "action": "fold",
+        "raise_to_bb": null,
+        "rank": 2,
+        "score": 0.3333333432674408
+      },
+      {
+        "action": "raise",
+        "raise_to_bb": 6.159999847412109,
+        "rank": 3,
+        "score": 0.3065476417541504
+      },
+      {
+        "action": "raise",
+        "raise_to_bb": 3.0799999237060547,
+        "rank": 4,
+        "score": 0.0089285708963871
+      },
+      {
+        "action": "raise",
+        "raise_to_bb": 4.619999885559082,
+        "rank": 5,
+        "score": 0.0089285708963871
+      }
+    ],
+    "matched_sample": {
+      "action_probs": [
+        0.3333333432674408,
+        0.3333333432674408,
+        0.3333333432674408
+      ],
+      "board": [
+        "4d",
+        "Qd",
+        "Qc",
+        "Kd"
+      ],
+      "call_cost_bb": 1.5,
+      "pot_bb": 5.5,
+      "raise_probs": [
+        0.0267857126891613,
+        0.0267857126891613,
+        0.9196428656578064,
+        0.0267857126891613
+      ]
+    },
+    "solve_elapsed_ms": 62.392218,
+    "solver": "rust_solver",
+    "stack_bucket_bb": 12,
+    "total_samples": 22,
+    "turn_boards_sampled": [
+      "Kd",
+      "8s"
+    ]
+  },
+  "baseline": {
+    "solve_elapsed_ms": 634.5,
+    "total_samples": 2320,
+    "top_action": "call",
+    "top_score": 0.489746,
+    "action_probs": [
+      0.0,
+      0.489746,
+      0.510254
+    ],
+    "raise_probs": [
+      0.009277,
+      0.009277,
+      0.009277,
+      0.972168
+    ]
+  }
+}

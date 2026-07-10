@@ -18,6 +18,7 @@ use rust_poker::hand_evaluator::{Hand, CARDS, evaluate};
 
 use rayon::prelude::*;
 
+use crate::actions::Action;
 use crate::tree::{Tree, NodeId};
 use crate::nodes::{TerminalType, TerminalNode};
 use crate::tree_builder::build_game_tree;
@@ -25,7 +26,7 @@ use crate::infoset::{Infoset, InfosetTable, create_infosets};
 use crate::nodes::GameTreeNode;
 use crate::options::Options;
 use crate::card_abstraction::{CardAbstraction, ISOMORPHIC, EMD, ICardAbstraction};
-use crate::state::BettingRound;
+use crate::state::{BettingRound, GameState};
 
 #[derive(Debug, Clone)]
 struct TrainHand {
@@ -1170,6 +1171,185 @@ impl MCCFRTrainer {
             _ => panic!("abstract_br_terminal called on non-terminal node"),
         }
     }
+
+    /// One hero decision node extracted after training (benchmark harness).
+    pub fn collect_hero_samples(
+        &self,
+        options: &Options,
+        hero: HoleCards,
+        hero_player: u8,
+        target_street: BettingRound,
+    ) -> Vec<HeroDecisionSample> {
+        let mut out = Vec::new();
+        let mut stack: Vec<(NodeId, GameState)> = vec![(0, GameState::from(options))];
+
+        while let Some((node, state)) = stack.pop() {
+            let tree_node = self.game_tree.get_node(node);
+            match &tree_node.data {
+                GameTreeNode::PrivateChance => {
+                    if let Some(&child) = tree_node.children.first() {
+                        stack.push((child, state));
+                    }
+                }
+                GameTreeNode::PublicChance(_) => {
+                    if let Some(&child) = tree_node.children.first() {
+                        stack.push((child, state.to_next_street()));
+                    }
+                }
+                GameTreeNode::Action(an) => {
+                    if an.player == hero_player && state.round == target_street {
+                        if let Some(sample) =
+                            self.extract_hero_sample(an, &state, hero, hero_player)
+                        {
+                            out.push(sample);
+                        }
+                    }
+                    for (i, action) in an.actions.iter().enumerate() {
+                        let next = state.apply_action(action);
+                        stack.push((tree_node.children[i], next));
+                    }
+                }
+                GameTreeNode::Terminal(_) => {}
+            }
+        }
+        out
+    }
+
+    fn extract_hero_sample(
+        &self,
+        an: &crate::nodes::ActionNode,
+        state: &GameState,
+        hero: HoleCards,
+        hero_player: u8,
+    ) -> Option<HeroDecisionSample> {
+        const CHIPS_PER_BB: f32 = 100.0;
+        let round_idx = self.abs_idx_for_round(state.round);
+        let mut cards = self.board_from_mask();
+        cards[0] = hero.0;
+        cards[1] = hero.1;
+        let cluster = self.get_cluster(round_idx, hero_player, &cards);
+        let strategy = self.infosets[an.index].final_strategy_or_uniform(cluster);
+
+        let mut fold_p = 0.0f32;
+        let mut call_p = 0.0f32;
+        let mut raise_p = 0.0f32;
+        let mut raise_amounts: Vec<(f32, f32)> = Vec::new();
+        let pot_bb = state.pot as f32 / CHIPS_PER_BB;
+
+        for (i, action) in an.actions.iter().enumerate() {
+            let p = strategy.get(i).copied().unwrap_or(0.0);
+            match action {
+                Action::Fold => fold_p += p,
+                Action::Check | Action::Call => call_p += p,
+                Action::Bet(frac) => {
+                    raise_p += p;
+                    raise_amounts.push((*frac as f32, p));
+                }
+                Action::Raise(mult) => {
+                    raise_p += p;
+                    let target =
+                        (state.highest_wager() as f64 * mult) as u32;
+                    let hero_wager = state.players[usize::from(hero_player)].wager;
+                    let increment = target.saturating_sub(hero_wager);
+                    let pot_pct = if pot_bb > 0.0 {
+                        (increment as f32 / CHIPS_PER_BB) / pot_bb
+                    } else {
+                        1.0
+                    };
+                    raise_amounts.push((pot_pct, p));
+                }
+            }
+        }
+
+        let total = fold_p + call_p + raise_p;
+        if total < 1e-6 {
+            return None;
+        }
+        fold_p /= total;
+        call_p /= total;
+        raise_p /= total;
+
+        let raise_multipliers = [0.50_f32, 0.75, 1.00];
+        let n_raise = raise_multipliers.len() + 1;
+        let mut rprobs = vec![0.01_f32; n_raise];
+        for (pot_pct, prob) in &raise_amounts {
+            let mut best_idx = 0usize;
+            let mut best_dist = f32::MAX;
+            for (i, m) in raise_multipliers.iter().enumerate() {
+                let d = (pot_pct - m).abs();
+                if d < best_dist {
+                    best_dist = d;
+                    best_idx = i;
+                }
+            }
+            if *pot_pct > 2.5 {
+                best_idx = n_raise - 1;
+            }
+            rprobs[best_idx] += prob;
+        }
+        let rp_total: f32 = rprobs.iter().sum();
+        if rp_total > 1e-6 {
+            for p in rprobs.iter_mut() {
+                *p /= rp_total;
+            }
+        }
+
+        let me = &state.players[usize::from(hero_player)];
+        let call_cost_bb =
+            (state.highest_wager().saturating_sub(me.wager) as f32) / CHIPS_PER_BB;
+
+        let street = match state.round {
+            BettingRound::Flop => "flop",
+            BettingRound::Turn => "turn",
+            BettingRound::River => "river",
+        };
+
+        Some(HeroDecisionSample {
+            board: board_mask_to_strings(self.initial_board_mask),
+            street: street.to_string(),
+            pot_bb,
+            call_cost_bb,
+            action_probs: [fold_p, call_p, raise_p],
+            raise_probs: [
+                rprobs[0],
+                rprobs[1],
+                rprobs[2],
+                rprobs.get(3).copied().unwrap_or(0.01),
+            ],
+        })
+    }
+}
+
+/// Hero decision sample (compatible with rjeans `TrainingSample` scoring).
+#[derive(Debug, Clone)]
+pub struct HeroDecisionSample {
+    pub board: Vec<String>,
+    pub street: String,
+    pub pot_bb: f32,
+    pub call_cost_bb: f32,
+    pub action_probs: [f32; 3],
+    pub raise_probs: [f32; 4],
+}
+
+fn board_mask_to_strings(mask: u64) -> Vec<String> {
+    let mut cards = Vec::new();
+    let mut m = mask;
+    while m.count_ones() > 0 {
+        let c = m.trailing_zeros() as u8;
+        cards.push(card_idx_to_str(c));
+        m ^= 1u64 << c;
+    }
+    cards
+}
+
+fn card_idx_to_str(card: u8) -> String {
+    let rank = usize::from(card >> 2);
+    let suit = usize::from(card & 3);
+    format!(
+        "{}{}",
+        RANK_TO_CHAR[rank],
+        SUIT_TO_CHAR[suit]
+    )
 }
 
 /// convergence.json writer. One `Sample` is emitted per call; the

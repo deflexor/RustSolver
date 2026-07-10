@@ -12,6 +12,10 @@ name = "solver"
 path = "src/solver/main.rs"
 
 [[bin]]
+name = "kk_turn_bench"
+path = "src/solver/kk_turn_bench.rs"
+
+[[bin]]
 name = "gen_abstraction"
 path = "src/gen_abstraction/main.rs"
 

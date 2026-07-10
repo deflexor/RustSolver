@@ -4,6 +4,11 @@ Companion to `PLAN.md`. Each task has an id, estimate, phase, dependencies,
 and a short spec. Tasks are grouped by phase, ordered by dependency within
 each phase.
 
+**Current north star (2026-Q3):** fast, low-exploitability postflop decisions
+via Python (`rust_solver_py` / PyO3 + `uv` + maturin), replacing rjeans
+`solver_ext`. **Phase 10 → Phase 11 is the critical path.** Phases 1–9
+remain for 3p / EMD / tier sweep after 2p HU runtime is trustworthy.
+
 Estimates are in **minutes** (matching `bd create --estimate` semantics so
 this can be re-imported into a tracker later).
 
@@ -29,6 +34,16 @@ this can be re-imported into a tracker later).
 | P0.5b | **Superseded** by the C-removal work. The C `hand_indexer` library has been **stubbed out** in the vendored rust_poker; the solver builds in ~4s without cmake/libclang. See `vendor/rust_poker/README.md`. | 2400 | - | 3 | declined |
 | P0.5c | Fix `rust_poker 0.1.5`'s `lazy_static!` thread-safety bug. Vendored fork at `vendor/rust_poker/`; both `lazy_static!` blocks (`CARDS` and `LOOKUP_TABLE`) replaced with `OnceLock`; 19 call sites updated to use `CARDS.get().expect("CARDS")[i]`; `init_cards()` exposed to pre-init the lookup tables from main. Wired up via `[patch.crates-io]`. | 240 | - | 0 | done |
 | P0.5d | Port the C `hand_indexer` algorithm to pure Rust as a publishable `poker_canon` crate at `crates/poker_canon/`. **Status: paused** (the C removal made this non-blocking). In-progress code at `crates/poker_canon/src/{deck,hand_indexer}.rs` has type errors that need fixing before it'll compile. | 2400 | - | 3 | paused |
+
+## Phase 0.5 - Benchmark harness (Jul 2026 session)
+
+| ID | Title | Est (min) | Deps | Priority | Status |
+|----|-------|-----------|------|----------|--------|
+| P0.6 | KK turn A/B harness: `src/solver/benchmark/kk_turn.rs`, `kk_turn_bench` binary, `benchmarks/kk_turn_040229_prompt.md`, `run_kk_turn_compare.py`, results JSON | 360 | P0.5c | 0 | done |
+| P0.6a | Turn-card sampling seed matches rjeans (`Kd`, `8s` for KsKc + 4dQcQd) | 60 | P0.6 | 0 | done |
+| P0.6b | Expanded OOP/IP combos via postflop-solver → `benchmarks/kk_turn_expanded_combos.txt` | 60 | P0.6 | 0 | done |
+| P0.6c | `MCCFRTrainer::collect_hero_samples` + ranked-decision export | 180 | P0.6 | 0 | done |
+| P0.6d | Tree-builder fixes: `is_terminal()` river only after `bets_settled`; `street_closed()` when ≤1 player can bet | 120 | P0.6 | 0 | done |
 
 ## Phase 1 - N-player state, no Preflop, stack-cap
 
@@ -125,11 +140,11 @@ independent; do in this order for compounding gains.
 |----|-------|-----------|------|----------|
 | P9.1 | Real hand evaluation in terminal walker: wire `rust_poker::hand_evaluator::Evaluator` into `abstract_br_terminal` / `abstract_ev_terminal`; thread `Hand` (both players' hole cards + 5 board cards) into the walker; ALLIN leaves keep precomputed `tn.value`; 2-3 unit tests with known hand ranks | 1440 | phase-1, P4.2 | 0 |
 | P9.2 | Per-bucket reach: add `ICardAbstraction::bucket_count(player) -> usize`; change `initial_reach()` from `vec![vec![1.0]; n_players]` to `vec![vec![1.0 / bucket_count(p)]; n_players]`; verify `calc_br`/`calc_ev` divide by reach correctly | 240 | P9.1 | 0 |
-| P9.3 | `rayon` parallel MCCFR walker: `use rayon::prelude::*`; `par_iter()` over leaf batch; verify 16-core scaling >80% | 60 | P9.1 | 0 |
+| P9.3 | `rayon` parallel MCCFR walker: `use rayon::prelude::*`; `par_iter()` over leaf batch; verify 16-core scaling >80% | 60 | P9.1 | 0 | done |
 | P9.4 | Pre-built abstract game tree cache: build full tree once at trainer init; serialize `game_tree.bin`; MCCFR iterates pre-built `Vec<NodeId>` | 240 | P9.1 | 0 |
-| P9.5 | External-sampling MCCFR (Lanctot et al. 2009): one player is the regret-updating player, opponents' actions sampled from their strategy, all players updated in a single walk | 480 | P9.3 | 0 |
+| P9.5 | External-sampling MCCFR (Lanctot et al. 2009): one player is the regret-updating player, opponents' actions sampled from their strategy, all players updated in a single walk | 480 | P9.3 | 0 | done |
 | P9.6 | Action abstraction presets: `Options::action_sizes: HashMap<Round, Vec<f32>>`; Flop `[0.33, 0.5, 0.75, 1.0, all-in]`; Turn/River `[0.5, 0.75, 1.0, 1.5, 2.0, all-in]` | 240 | phase-1 | 1 |
-| P9.7 | 2p 15BB / 25BB benchmark suite: reproducible timing; target <30 sec per tier to <50 mbb/h post-P9.5; print `convergence.jsonl` summary table | 240 | P9.5 | 0 |
+| P9.7 | 2p benchmark suite incl. KK turn spot (`kk_turn_bench`); timing + strategy quality gates | 240 | P9.5 | 0 | partial (timing only; quality gate open) |
 | P9.8 | CFR+ weighted strategy_sum by iter_t (proper version); thread the iteration counter through `mccfr`; verify strategy_sum weights are correct (current P4.4 is multiplier=1) | 180 | P4.4, P9.3 | 1 |
 | P9.9 | Unit test for CFR+ regret-floor-at-zero behavior (verifies `floor_regrets_at_zero()` actually clamps to 0) | 60 | P4.4 | 1 |
 | P9.10 | Bench harness: `cargo bench --bench mccfr` with criterion; per-tier throughput (iters/sec) and exploitability curve | 240 | P9.7 | 2 |
@@ -146,7 +161,49 @@ vs leaf-eval) is the debug target.
 
 ---
 
+## Phase 10 - Runtime decision quality (**priority 0**, blocks Python)
+
+Must pass before `rust_solver_py` ships. See PLAN.md Phase 10 gate.
+
+| ID | Title | Est (min) | Deps | Priority |
+|----|-------|-----------|------|----------|
+| P10.1 | Real hand eval in BR/EV terminal walker (= P9.1); AA vs 22, AKs vs 72o unit tests | 1440 | P4.2 | 0 |
+| P10.2 | Per-bucket reach normalization (= P9.2); trustworthy `exploitability_max` | 240 | P10.1 | 0 |
+| P10.3 | Hero-exact strategy at query: given `hero_hand`, return combo strategy not bucket uniform; train/query path for queried combo | 480 | P10.1 | 0 |
+| P10.4 | Convergence stop: `time_budget_ms` + `target_mbb` in trainer API; wire to benchmark + future Python API | 180 | P10.2 | 0 |
+| P10.5 | Flop-entry solve + turn-card sampling; match TUI pot/call geometry on KK harness | 360 | P0.6 | 0 |
+| P10.6 | PPT hyphen range import (postflop-solver parser or Rust port); replace embedded combo file | 240 | P0.6b | 1 |
+| P10.7 | KK turn **quality gate**: non-uniform top action, `exploitability_max < 50 mbb/h` (stretch: 5) | 120 | P10.3, P10.4, P10.5 | 0 |
+
+## Phase 11 - Python library `rust_solver_py` (**priority 0 after Phase 10**)
+
+| ID | Title | Est (min) | Deps | Priority |
+|----|-------|-----------|------|----------|
+| P11.1 | PyO3 crate + `pyproject.toml` (maturin); `uv venv` + `maturin develop --release` in README | 240 | P10.7 | 0 |
+| P11.2 | `solve_turn_decision(...) -> Decision` minimal API (ranked actions + exploitability estimate) | 360 | P11.1, P10.4 | 0 |
+| P11.3 | `TrainingSample` + `SolverSession.solve_flop_tree` compat for `solver_decide.py` | 480 | P11.2, P10.5 | 1 |
+| P11.4 | Session-scoped config cache (ranges, stack bucket, tree params) | 120 | P11.2 | 2 |
+| P11.5 | uv integration test: import module, run KK spot, assert Phase 10 gate | 120 | P11.2 | 0 |
+| P11.6 | rjeans TUI feature flag `RUST_SOLVER=1` swap-in | 240 | P11.3, P11.5 | 2 |
+
+---
+
 ## Cross-phase dependency summary
+
+```
+Phase 0 (no deps) ──> P0.6 benchmark harness (done)
+   |
+   v
+Phase 10 (decision quality) ── GATE ──> Phase 11 (Python / uv / maturin)
+   ^
+   | (P9.1 hand eval, P9.2 reach overlap P10.1–P10.2)
+   |
+Phase 1
+   |
+   +--> Phase 2 ... Phase 9 (3p, EMD, tier sweep — parallel / deferred)
+```
+
+Legacy path (3p product):
 
 ```
 Phase 0 (no deps)
@@ -174,10 +231,7 @@ Phase 1
          Phase 7 (per-tier runner, validation)
            |
            v
-         Phase 9 (speed & precision for 15-25BB; depends on P4.2 for hand-eval work)
-           |
-           v
-         (final benchmark + tier sweep)
+         Phase 9 (speed & precision for 15-25BB)
 
 Phase 8 (independent; feeds runtime via Options::preflop_ranges)
 ```
@@ -197,14 +251,23 @@ Phase 8 (independent; feeds runtime via Options::preflop_ranges)
 | 7     | 5     | 1320               |
 | 8     | 2     | 420                |
 | 9     | 10    | 3420               |
-| **Total** | **57** | **~14700 min (~24.5 work-weeks at 10h/week)** |
+| 0.5   | 4     | 780                |
+| 10    | 7     | 3060               |
+| 11    | 6     | 1560               |
+| **Total** | **74** | **~20100 min (~33.5 work-weeks at 10h/week)** |
 
-## Performance budget (2026-Q2 revision)
+Note: Phase 10–11 are **priority 0** for the Python runtime target. Phases
+1–9 estimates remain for the longer 3p / EMD roadmap and overlap with P10
+where noted (P9.1 ≡ P10.1, P9.2 ≡ P10.2).
 
-The 15-25BB use case demands <1 minute per depth tier. Phase 9 is
-the speed work that makes this possible. The steps in P9.1-P9.7 are
-additive: each one alone gives a measurable speedup; combined, they
-target 100-300x total over the post-Phase 4 baseline.
+## Performance budget (2026-Q3 revision)
+
+**Python runtime target:** KK-class HU turn spots in **<500 ms** with
+**non-uniform, low-exploitability** strategy (Phase 10 gate). Speed alone
+is insufficient — Jul 2026 benchmark: 62 ms but ~uniform play.
+
+**15-25BB tier target (unchanged):** Phase 9 speed work after Phase 10
+quality gate passes.
 
 ## Why this file and not `bd`
 

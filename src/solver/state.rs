@@ -111,7 +111,7 @@ impl GameState {
     }
 
     pub fn is_terminal(&self) -> bool {
-        self.round == BettingRound::River
+        (self.round == BettingRound::River && self.bets_settled)
             || self.is_allin()
             || self.is_uncontested()
     }
@@ -123,6 +123,16 @@ impl GameState {
     /// checked in sequence).
     pub fn street_closed(&self) -> bool {
         if self.bets_settled {
+            return true;
+        }
+        // HU (or N-way): if at most one player can still put chips in,
+        // no further betting is possible (e.g. short all-in call).
+        let can_act = self
+            .players
+            .iter()
+            .filter(|p| !p.has_folded && p.stack > 0)
+            .count();
+        if can_act <= 1 {
             return true;
         }
         let target = self.highest_wager();
