@@ -95,18 +95,34 @@ fn parse_cli() -> (TrainConfig, SolverPreset) {
                 cfg = cfg.with_cfr_plus(false);
                 i += 1;
             }
+            "--threads" => {
+                if let Some(v) = args.get(i + 1) {
+                    if let Ok(n) = v.parse::<usize>() {
+                        if n == 0 {
+                            eprintln!("--threads must be a positive integer");
+                            std::process::exit(2);
+                        }
+                        cfg = cfg.with_n_threads(n);
+                        i += 2;
+                        continue;
+                    }
+                }
+                eprintln!("--threads requires a positive integer");
+                std::process::exit(2);
+            }
             "--help" | "-h" => {
                 eprintln!(
                     "rust_solver [--preset turn|flop] [--max-iter N] [--target-mbb M] \\\n\
-                     \x20            [--convergence-interval I] [--convergence-path P] \\\n\
-                     \x20            [--cfr-plus | --no-cfr-plus]\n\
+                     \x20            [--threads N] [--convergence-interval I] \\\n\
+                     \x20            [--convergence-path P] [--cfr-plus | --no-cfr-plus]\n\
                      \n\
                      Defaults: --preset turn --max-iter 10000000 \\\n\
+                     \x20          --threads <available_parallelism> \\\n\
                      \x20          --convergence-interval 100000 \\\n\
                      \x20          --convergence-path convergence.jsonl --cfr-plus\n\
                      \n\
-                     Flop preset uses full random ranges and may OOM until sparse\n\
-                     infoset allocation (P5.2) lands. Turn preset is the safe default."
+                     Flop preset (`--preset flop`) remains available but is not\n\
+                     used in tests; turn preset is the default."
                 );
                 std::process::exit(0);
             }
@@ -141,8 +157,8 @@ fn main() {
         SolverPreset::Turn => solver_options::default_turn_solve(),
         SolverPreset::Flop => {
             eprintln!(
-                "warning: --preset flop uses full random ranges and may OOM;\n\
-                 \x20        prefer --preset turn until sparse infosets (P5.2) land"
+                "warning: --preset flop uses full random ranges and high memory;\n\
+                 \x20        prefer --preset turn unless you have RAM headroom"
             );
             solver_options::default_flop()
         }
@@ -152,9 +168,14 @@ fn main() {
     trainer.train_with_config(&cfg);
     let elapsed = start.elapsed();
     eprintln!(
-        "done: {} iters in {:.2}s (preset={})",
+        "done: {} iters in {:.2}s (preset={}, threads={})",
         cfg.max_iter,
         elapsed.as_secs_f64(),
-        preset.name()
+        preset.name(),
+        cfg.n_threads.unwrap_or_else(|| {
+            std::thread::available_parallelism()
+                .map(|n| n.get())
+                .unwrap_or(8)
+        })
     );
 }

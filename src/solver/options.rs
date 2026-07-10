@@ -135,7 +135,7 @@ pub fn default_flop() -> Options {
 
 /// Narrow hand ranges for tests and smoke runs. Full `random` (1326
 /// combos) makes ISOMORPHIC abstraction + eager infoset allocation
-/// exhaust RAM; keep tests on this until sparse infosets land (P5.2).
+/// exhaust RAM; keep tests on turn-only until flop preset is enabled.
 pub fn narrow_test_ranges(n_players: usize) -> Vec<HandRange> {
     const RANGES: [&str; 2] = ["AA,KK,QQ,JJ", "TT,99,88,77"];
     assert!(n_players <= RANGES.len());
@@ -147,7 +147,7 @@ pub fn narrow_test_ranges(n_players: usize) -> Vec<HandRange> {
 
 /// Turn-entry scenario for tests: 4 community cards, turn+river
 /// betting only. Uses narrow ranges to stay within memory budget
-/// while ISOMORPHIC infosets are eagerly allocated.
+/// while ISOMORPHIC infosets use sparse allocation (P5.2).
 pub fn default_turn_solve() -> Options {
     Options {
         n_players: 2,

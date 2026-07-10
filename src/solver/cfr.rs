@@ -1,4 +1,4 @@
-use std::iter::FromIterator;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::{thread, time};
 use crossbeam::atomic::AtomicCell;
 use std::sync::Arc;
@@ -189,6 +189,8 @@ pub struct TrainConfig {
     /// 0 and strategy_sum weighted by iteration count. Substantially
     /// faster convergence on 2p river subgames.
     pub cfr_plus: bool,
+    /// Rayon worker count. `None` uses `available_parallelism()` (P9.3).
+    pub n_threads: Option<usize>,
 }
 
 impl Default for TrainConfig {
@@ -199,6 +201,7 @@ impl Default for TrainConfig {
             convergence_interval: 100_000,
             convergence_path: None,
             cfr_plus: false,
+            n_threads: None,
         }
     }
 }
@@ -222,6 +225,10 @@ impl TrainConfig {
     }
     pub fn with_cfr_plus(mut self, on: bool) -> Self {
         self.cfr_plus = on;
+        self
+    }
+    pub fn with_n_threads(mut self, n: usize) -> Self {
+        self.n_threads = Some(n);
         self
     }
 }
@@ -320,22 +327,54 @@ impl MCCFRTrainer {
         self.train_with_config(&cfg);
     }
 
+    /// One external-sampling MCCFR iteration (Lanctot et al. 2009, P9.5).
+    ///
+    /// A single hand is drawn, one traverser is selected (rotating by
+    /// `iter_idx`), and the tree is walked once. At the traverser's
+    /// infosets all actions are evaluated and regrets are updated; at
+    /// opponent infosets one action is sampled from their strategy.
+    /// This replaces the prior pattern of one full traversal per player
+    /// per iteration (~`n_players`× less tree work per iteration).
+    fn run_one_iteration<R: Rng>(&self, rng: &mut R, iter_idx: usize, cfr_plus: bool) {
+        const PRUNE_THRESHOLD: usize = 10_000_000;
+        let hand = generate_hand(rng, self.initial_board_mask, &self.hand_ranges);
+        let q: f32 = rng.gen();
+        let prune = iter_idx > PRUNE_THRESHOLD && q > 0.05;
+        let n_players = self.hand_ranges.len();
+        let traverser = (iter_idx % n_players) as u8;
+        self.external_sampling_mccfr(
+            rng,
+            0,
+            traverser,
+            hand,
+            1f32,
+            prune,
+            cfr_plus,
+        );
+    }
+
     /// Run MCCFR training with the given config. `cfg` controls
     /// convergence sampling, target exploitability, and the
     /// `convergence.jsonl` output path.
     pub fn train_with_config(&mut self, cfg: &TrainConfig) {
-        const PRUNE_THRESHOLD: usize = 10_000_000;
         const DISCOUNT_INTERVAL: usize = 100_000;
         const DISCOUNT_CAP: usize = 20_000_000;
-        const N_THREADS: usize = 8;
+        /// Rayon batch size per scheduling round (P9.3).
+        const BATCH_MULTIPLIER: usize = 4;
+
         let max_iter = cfg.max_iter;
         let target_mbb = cfg.target_exploitability_mbb;
         let conv_interval = cfg.convergence_interval.max(1);
+        let n_threads = cfg.n_threads.unwrap_or_else(|| {
+            std::thread::available_parallelism()
+                .map(|n| n.get())
+                .unwrap_or(8)
+        });
 
-        let thread_rng = thread_rng();
         let n_players = self.hand_ranges.len();
 
-        let t = Arc::new(AtomicCell::new(0));
+        let t = Arc::new(AtomicCell::new(0usize));
+        let stop = Arc::new(AtomicBool::new(false));
         let a_self = Arc::new(self);
         let started = std::time::Instant::now();
         let recorder = cfg
@@ -344,39 +383,22 @@ impl MCCFRTrainer {
             .map(|p| convergence::Recorder::new(p));
 
         let cfr_plus = cfg.cfr_plus;
-        crossbeam::scope(|scope| {
-            // Worker threads.
-            for _ in 0..N_THREADS {
-                let a_self = Arc::clone(&a_self);
-                let mut rng = SmallRng::from_rng(thread_rng).unwrap();
-                let t = t.clone();
-                scope.spawn(move |_| {
-                    while t.load() < max_iter {
-                        let hand = generate_hand(
-                                &mut rng,
-                                a_self.initial_board_mask,
-                                a_self.hand_ranges.as_slice());
-                        let q: f32 = rng.gen();
-                        for player in 0..n_players {
-                            if t.load() > PRUNE_THRESHOLD && q > 0.05 {
-                                a_self.mccfr(&mut rng, 0, player as u8, hand.clone(), 1f32, true, cfr_plus);
-                            } else {
-                                a_self.mccfr(&mut rng, 0, player as u8, hand.clone(), 1f32, false, cfr_plus);
-                            }
-                        }
-                        t.fetch_add(1);
-                    }
-                });
-            }
+        let pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(n_threads)
+            .build()
+            .expect("rayon thread pool");
 
+        crossbeam::scope(|scope| {
             // Discount thread (every DISCOUNT_INTERVAL iters).
             let a_self_discount = Arc::clone(&a_self);
             let t_discount = Arc::clone(&t);
+            let stop_discount = Arc::clone(&stop);
             scope.spawn(move |_| {
                 let mut threshold = DISCOUNT_INTERVAL;
-                while t_discount.load() < max_iter {
-                    let onems = time::Duration::from_millis(1);
-                    thread::sleep(onems);
+                while !stop_discount.load(Ordering::Relaxed)
+                    && t_discount.load() < max_iter
+                {
+                    thread::sleep(time::Duration::from_millis(1));
                     let tc = t_discount.load();
                     if tc > DISCOUNT_CAP {
                         break;
@@ -385,7 +407,7 @@ impl MCCFRTrainer {
                         let p = (tc / DISCOUNT_INTERVAL) as f32;
                         let d = p / (p + 1.0);
                         for row in a_self_discount.infosets.iter() {
-                            for infoset in row.iter() {
+                            for infoset in row.initialized_infosets() {
                                 infoset.discount(d);
                             }
                         }
@@ -398,13 +420,13 @@ impl MCCFRTrainer {
             if let Some(recorder) = recorder {
                 let a_self_conv = Arc::clone(&a_self);
                 let t_conv = Arc::clone(&t);
+                let stop_conv = Arc::clone(&stop);
                 let depth_tier_bb = a_self_conv.depth_tier_bb;
                 scope.spawn(move |_| {
                     let mut next_sample_at: u64 = conv_interval as u64;
                     let mut stop_reason: Option<String> = None;
-                    while t_conv.load() < max_iter {
-                        let onems = time::Duration::from_millis(1);
-                        thread::sleep(onems);
+                    while !stop_conv.load(Ordering::Relaxed) && t_conv.load() < max_iter {
+                        thread::sleep(time::Duration::from_millis(1));
                         let tc = t_conv.load() as u64;
                         if tc < next_sample_at {
                             continue;
@@ -417,14 +439,14 @@ impl MCCFRTrainer {
                             n_players,
                             ev,
                             best_response: br,
-                            memory_mb: estimate_rss_mb(),
-                            n_threads: N_THREADS,
+                            memory_mb: a_self_conv.infosets.total_bytes() as u64 / (1024 * 1024),
+                            n_threads,
                             stop_reason: None,
                         };
-                        // Check stop condition before recording.
                         if let Some(target) = target_mbb {
                             if sample.exploitability_max_mbb_per_hand() <= target {
                                 stop_reason = Some("target_reached".to_string());
+                                stop_conv.store(true, Ordering::Relaxed);
                                 if let Err(e) = recorder.write(&sample) {
                                     eprintln!("[convergence] write error: {}", e);
                                 }
@@ -436,7 +458,6 @@ impl MCCFRTrainer {
                         }
                         next_sample_at = tc + conv_interval as u64;
                     }
-                    // Final sample with stop_reason if we exited cleanly.
                     if stop_reason.is_some() {
                         let (ev, br) = a_self_conv.compute_sample_inputs();
                         let final_sample = convergence::Sample {
@@ -446,47 +467,88 @@ impl MCCFRTrainer {
                             n_players,
                             ev,
                             best_response: br,
-                            memory_mb: estimate_rss_mb(),
-                            n_threads: N_THREADS,
+                            memory_mb: a_self_conv.infosets.total_bytes() as u64 / (1024 * 1024),
+                            n_threads,
                             stop_reason,
                         };
                         let _ = recorder.write(&final_sample);
                     }
                 });
             }
+
+            // P9.3: rayon parallel iteration batches.
+            let stop_train = Arc::clone(&stop);
+            let t_train = Arc::clone(&t);
+            scope.spawn(move |_| {
+                pool.install(|| {
+                    let batch_size = (n_threads * BATCH_MULTIPLIER).max(1);
+                    while !stop_train.load(Ordering::Relaxed) {
+                        let batch_start = t_train.fetch_add(batch_size);
+                        if batch_start >= max_iter {
+                            break;
+                        }
+                        let batch_end = (batch_start + batch_size).min(max_iter);
+                        (batch_start..batch_end).into_par_iter().for_each(|iter_idx| {
+                            if stop_train.load(Ordering::Relaxed) {
+                                return;
+                            }
+                            let mut rng = SmallRng::from_rng(thread_rng()).unwrap();
+                            a_self.run_one_iteration(&mut rng, iter_idx, cfr_plus);
+                        });
+                    }
+                });
+            });
         })
         .unwrap();
     }
 
-    fn mccfr<R: Rng>(&self,
-            rng: &mut R, node_id: NodeId,
-            player: u8, mut hand: TrainHand,
-            cfr_reach: f32, prune: bool, cfr_plus: bool) -> f32 {
+    /// External-sampling MCCFR traversal for a single traverser.
+    ///
+    /// `traverser` is the only player whose regrets/strategy_sum are
+    /// updated. Opponent nodes sample one action; traverser nodes
+    /// enumerate all actions. `cfr_reach` tracks the product of
+    /// sampled opponent reach probabilities.
+    fn external_sampling_mccfr<R: Rng>(
+        &self,
+        rng: &mut R,
+        node_id: NodeId,
+        traverser: u8,
+        mut hand: TrainHand,
+        cfr_reach: f32,
+        prune: bool,
+        cfr_plus: bool,
+    ) -> f32 {
 
         let node = self.game_tree.get_node(node_id);
         match &node.data {
-            GameTreeNode::PublicChance(_) => {
-                // progress to next node
-                return self.mccfr(rng, node.children[0], player, hand, cfr_reach, prune, cfr_plus);
-            },
-            GameTreeNode::PrivateChance => {
-                // progress to next node
-                return self.mccfr(rng, node.children[0], player, hand, cfr_reach, prune, cfr_plus);
-            },
+            GameTreeNode::PublicChance(_) => self.external_sampling_mccfr(
+                rng,
+                node.children[0],
+                traverser,
+                hand,
+                cfr_reach,
+                prune,
+                cfr_plus,
+            ),
+            GameTreeNode::PrivateChance => self.external_sampling_mccfr(
+                rng,
+                node.children[0],
+                traverser,
+                hand,
+                cfr_reach,
+                prune,
+                cfr_plus,
+            ),
             GameTreeNode::Terminal(tn) => {
-                let my_wager = tn.player_wagers.get(usize::from(player)).copied().unwrap_or(0);
+                let my_wager = tn.player_wagers.get(usize::from(traverser)).copied().unwrap_or(0);
                 match tn.ttype {
                     TerminalType::UNCONTESTED => {
-                        // last_to_act is the survivor (the only
-                        // non-folded player after all folds were
-                        // processed). That player gets the pot;
-                        // others lose their wager.
-                        if player == tn.last_to_act {
+                        if traverser == tn.last_to_act {
                             return 1.0 * ((tn.value as f32) - (my_wager as f32));
                         } else {
                             return -1.0 * (my_wager as f32);
                         }
-                    },
+                    }
                     TerminalType::SHOWDOWN | TerminalType::ALLIN => {
                         let n = hand.num_players();
                         if n < 2 {
@@ -494,20 +556,16 @@ impl MCCFRTrainer {
                         }
                         let scores: Vec<u16> =
                             (0..n).map(|p| evaluate(&hand.get_hand(p as u8))).collect();
-                        let my_score = scores[usize::from(player)];
+                        let my_score = scores[usize::from(traverser)];
                         let any_higher = scores.iter().any(|&s| s > my_score);
                         if !any_higher {
-                            // Winner: net win = pot - my_wager
-                            // (they get their wager back from the pot
-                            // plus everyone else's contribution).
                             return 1.0 * ((tn.value as f32) - (my_wager as f32));
                         } else {
-                            // Loser: lose their wager.
                             return -1.0 * (my_wager as f32);
                         }
                     }
                 }
-            },
+            }
             GameTreeNode::Action(an) => {
 
                 const PRUNE_THRESHOLD: i32 = -10000000;
@@ -528,28 +586,40 @@ impl MCCFRTrainer {
                 {
 
                 }
-                if an.player == player {
+                if an.player == traverser {
                     let mut util = 0f32;
                     let mut utils = vec![0f32; n_actions];
                     let mut explored = vec![false; n_actions];
 
-                    let infoset = &self.infosets[an.index][cluster_idx];
+                    let infoset = self.infosets[an.index].get_or_init(cluster_idx);
                     let strategy = infoset.get_strategy();
 
                     for i in 0..n_actions {
                         if prune {
                             if infoset.regret(i) > PRUNE_THRESHOLD {
-                            utils[i] = self.mccfr(
-                                rng, node.children[i],
-                                player, hand.clone(), cfr_reach, prune, cfr_plus);
-                            util += utils[i] * strategy[i];
-                            explored[i] = true;
+                                utils[i] = self.external_sampling_mccfr(
+                                    rng,
+                                    node.children[i],
+                                    traverser,
+                                    hand.clone(),
+                                    cfr_reach,
+                                    prune,
+                                    cfr_plus,
+                                );
+                                util += utils[i] * strategy[i];
+                                explored[i] = true;
                             }
                         } else {
-                        utils[i] = self.mccfr(
-                            rng, node.children[i],
-                            player, hand.clone(), cfr_reach, prune, cfr_plus);
-                        util += utils[i] * strategy[i];
+                            utils[i] = self.external_sampling_mccfr(
+                                rng,
+                                node.children[i],
+                                traverser,
+                                hand.clone(),
+                                cfr_reach,
+                                prune,
+                                cfr_plus,
+                            );
+                            util += utils[i] * strategy[i];
                         }
                     }
 
@@ -578,16 +648,21 @@ impl MCCFRTrainer {
                     }
 
                     return util;
-                } else {
-                    // sample one action based on distribution
-                    let infoset = &self.infosets[an.index][cluster_idx];
-                    let strategy = infoset.get_strategy();
-                    let dist = WeightedIndex::new(&strategy).unwrap();
-                    let a_idx = dist.sample(rng);
-                    return self.mccfr(
-                        rng, node.children[a_idx],
-                        player, hand, cfr_reach * strategy[a_idx], prune, cfr_plus);
                 }
+                // Opponent node: sample one action (external sampling).
+                let row = &self.infosets[an.index];
+                let strategy = row.strategy_or_uniform(cluster_idx);
+                let dist = WeightedIndex::new(&strategy).unwrap();
+                let a_idx = dist.sample(rng);
+                return self.external_sampling_mccfr(
+                    rng,
+                    node.children[a_idx],
+                    traverser,
+                    hand,
+                    cfr_reach * strategy[a_idx],
+                    prune,
+                    cfr_plus,
+                );
             }
         }
     }
@@ -981,7 +1056,7 @@ impl MCCFRTrainer {
 
                 let mut probabilites: Vec<Vec<f32>> = Vec::new();
                 for i in 0..n_buckets {
-                    probabilites.push(self.infosets[info_idx][i].get_final_strategy());
+                    probabilites.push(self.infosets[info_idx].final_strategy_or_uniform(i));
                 }
 
                 let player = usize::from(an.player);
@@ -1041,7 +1116,7 @@ impl MCCFRTrainer {
                 };
                 let mut probabilites: Vec<Vec<f32>> = Vec::new();
                 for i in 0..n_buckets {
-                    probabilites.push(self.infosets[info_idx][i].get_final_strategy());
+                    probabilites.push(self.infosets[info_idx].final_strategy_or_uniform(i));
                 }
                 let n_players = op.len();
                 let player = usize::from(an.player);
@@ -1276,8 +1351,8 @@ mod tests {
 
         // Initial regrets should all be zero.
         let mut non_zero = 0usize;
-        for infoset_row in trainer.infosets.iter() {
-            for infoset in infoset_row.iter() {
+        for row in trainer.infosets.iter() {
+            for infoset in row.initialized_infosets() {
                 for i in 0..infoset.n_actions() {
                     if infoset.regret(i) != 0 {
                         non_zero += 1;
@@ -1286,6 +1361,11 @@ mod tests {
             }
         }
         assert_eq!(non_zero, 0, "fresh infosets should start with zero regrets");
+        assert_eq!(
+            trainer.infosets.allocated_count(),
+            0,
+            "sparse table should allocate no Infoset storage before training"
+        );
 
         // Game tree should have at least one node.
         assert!(trainer.game_tree.len() > 0, "game tree should be non-empty");
@@ -1311,8 +1391,8 @@ mod tests {
 
         // Snapshot non-zero regrets before training.
         let mut before = 0usize;
-        for infoset_row in trainer.infosets.iter() {
-            for infoset in infoset_row.iter() {
+        for row in trainer.infosets.iter() {
+            for infoset in row.initialized_infosets() {
                 for i in 0..infoset.n_actions() {
                     if infoset.regret(i) != 0 {
                         before += 1;
@@ -1322,9 +1402,11 @@ mod tests {
         }
         assert_eq!(before, 0, "fresh infosets should start with zero regrets");
 
-        // 1000 iters is enough to drive non-zero regrets without
-        // blowing test time. The default config uses 8 worker threads.
-        trainer.train(1_000);
+        // 1000 iters with external sampling (P9.5): one traverser per
+        // iteration, rotating across players. 2000 iters worth of
+        // per-player updates in 2p would need 4000 total; 1000 is
+        // still enough to move regrets on the small turn tree.
+        trainer.train(2_000);
 
         // After training, BR values should be finite.
         let br = trainer.calc_br();
@@ -1335,8 +1417,8 @@ mod tests {
 
         // At least one infoset's regret should have moved off zero.
         let mut after = 0usize;
-        for infoset_row in trainer.infosets.iter() {
-            for infoset in infoset_row.iter() {
+        for row in trainer.infosets.iter() {
+            for infoset in row.initialized_infosets() {
                 for i in 0..infoset.n_actions() {
                     if infoset.regret(i) != 0 {
                         after += 1;
@@ -1346,7 +1428,32 @@ mod tests {
         }
         assert!(
             after > 0,
-            "no regrets moved off zero after 1000 iters (got 0)"
+            "no regrets moved off zero after 2000 iters (got 0)"
+        );
+    }
+
+    /// P9.5: one external-sampling iteration walks the tree once.
+    #[test]
+    fn external_sampling_one_iter_updates_regrets() {
+        setup_out_dir();
+        init_cards();
+        let options = default_turn_solve();
+        let trainer = MCCFRTrainer::init(options);
+        let mut rng = SmallRng::from_rng(thread_rng()).unwrap();
+        trainer.run_one_iteration(&mut rng, 0, false);
+        let mut moved = 0usize;
+        for row in trainer.infosets.iter() {
+            for infoset in row.initialized_infosets() {
+                for i in 0..infoset.n_actions() {
+                    if infoset.regret(i) != 0 {
+                        moved += 1;
+                    }
+                }
+            }
+        }
+        assert!(
+            moved > 0,
+            "single external-sampling iteration should update at least one regret"
         );
     }
 

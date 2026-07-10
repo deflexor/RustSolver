@@ -323,7 +323,7 @@ mod tests {
     /// requires `round_1_emd.dat`. Disabled until sparse infoset
     /// allocation (P5.2) fixes the OOM on flop solves.
     #[test]
-    #[ignore = "flop solve OOM: re-enable after sparse infoset allocation (P5.2)"]
+    #[ignore = "flop preset disabled in tests; sparse infosets (P5.2) enabled"]
     fn test_init_emd_flop() {
         let round = BettingRound::Flop;
         let flop_mask: u64 = 0x2200100000000;
