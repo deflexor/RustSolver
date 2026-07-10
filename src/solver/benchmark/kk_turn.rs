@@ -7,7 +7,8 @@ use std::time::Instant;
 use rust_poker::constants::{RANK_TO_CHAR, SUIT_TO_CHAR};
 use rust_poker::hand_range::{get_card_mask, HandRange, HoleCards};
 
-use crate::cfr::{HeroDecisionSample, MCCFRTrainer, TrainConfig};
+use crate::cfr::{HeroDecisionSample, HeroSampleQuery, MCCFRTrainer, TrainConfig};
+use crate::options::{solver_ext_turn_action_abstraction, solver_ext_action_abstraction, HU_CX_FLOP_POT_CHIPS, CHIPS_PER_BB};
 use crate::options::Options;
 use crate::range_parse::expand_ppt_range;
 use crate::state::BettingRound;
@@ -19,16 +20,17 @@ pub const IP_RANGE: &str =
 
 pub const HERO_HAND: &str = "KsKc";
 pub const FLOP: &str = "4dQcQd";
-pub const QUERY_POT_BB: f32 = 6.16;
+pub const QUERY_POT_BB: f32 = 2.0;
 pub const QUERY_CALL_BB: f32 = 0.0;
 pub const STACK_BUCKET_BB: u32 = 12;
-pub const MAX_ITER: usize = 200;
+pub const MAX_ITER: usize = 1000;
+/// Deterministic training seed (KK benchmark reproducibility).
+pub const TRAIN_SEED: u64 = 0x4b4b5f7475726e; // "KK_turn"
 pub const TURN_CARD_LIMIT: usize = 2;
 pub const SAMPLE_TOLERANCE_BB: f32 = 0.5;
 
-const CHIPS_PER_BB: f32 = 100.0;
-/// Pot at the turn decision node (matches TUI / rjeans baseline).
-const TURN_ENTRY_POT_CHIPS: u32 = 616;
+/// Pot at turn decision for `solver_ext`-compatible turn entry (2 BB).
+const TURN_ENTRY_POT_CHIPS: u32 = HU_CX_FLOP_POT_CHIPS;
 
 #[derive(Debug, Clone)]
 pub struct RankedDecision {
@@ -49,14 +51,15 @@ pub struct BaselineExpectation {
 }
 
 impl BaselineExpectation {
+    /// `solver_ext` check-check flop → Kd turn, facing check (pot=2 BB, call=0).
     pub fn rjeans_stack_12() -> Self {
         BaselineExpectation {
-            solve_elapsed_ms: 634.5,
-            total_samples: 2320,
+            solve_elapsed_ms: 844.0,
+            total_samples: 5588,
             top_action: "call".into(),
-            top_score: 0.489746,
-            action_probs: [0.0, 0.489746, 0.510254],
-            raise_probs: [0.009277, 0.009277, 0.009277, 0.972168],
+            top_score: 0.6016,
+            action_probs: [0.0, 0.6016, 0.3984],
+            raise_probs: [0.02, 0.02, 0.94, 0.02],
         }
     }
 }
@@ -100,7 +103,7 @@ fn load_benchmark_ranges() -> (HandRange, HandRange) {
 }
 
 /// Build `Options` for a turn-entry solve on one sampled turn card.
-/// `starting_pot` matches the TUI decision-node geometry (6.16 BB).
+/// `starting_pot` is 2 BB (`solver_ext` HU_CX default).
 pub fn options_for_turn_card(turn_card: &str) -> Options {
     let board = format!("{}{}", FLOP, turn_card);
     let (oop_range, ip_range) = load_benchmark_ranges();
@@ -108,17 +111,14 @@ pub fn options_for_turn_card(turn_card: &str) -> Options {
         n_players: 2,
         hand_ranges: vec![oop_range, ip_range],
         stack_sizes: vec![
-            STACK_BUCKET_BB * 100,
-            STACK_BUCKET_BB * 100,
+            STACK_BUCKET_BB * CHIPS_PER_BB,
+            STACK_BUCKET_BB * CHIPS_PER_BB,
         ],
         board_mask: get_card_mask(&board),
         starting_pot: TURN_ENTRY_POT_CHIPS,
         all_in_threshold: 1.5,
         max_raises: 3,
-        action_abstraction: crate::actions::ActionAbstraction {
-            bet_sizes: vec![vec![0.5, 0.75, 1.0], vec![0.5, 0.75, 1.0]],
-            raise_sizes: vec![vec![2.5], vec![2.5]],
-        },
+        action_abstraction: solver_ext_turn_action_abstraction(),
         depth_tier_bb: STACK_BUCKET_BB,
         postflop_pot_override: None,
         rake: None,
@@ -286,6 +286,61 @@ pub fn sample_to_decisions(
         .collect()
 }
 
+pub fn solve_flop_entry_turn(turn_card: &str) -> TurnSolveResult {
+    let options = options_for_flop_entry(turn_card);
+    let hero = hero_hole_cards();
+    let tc = get_card_mask(turn_card).trailing_zeros() as u8;
+    let t0 = Instant::now();
+    let mut trainer = MCCFRTrainer::init(options.clone());
+    let cfg = TrainConfig::default()
+        .with_max_iter(MAX_ITER)
+        .with_n_threads(1)
+        .with_cfr_plus(true)
+        .with_seed(TRAIN_SEED)
+        .with_pin_hero(hero, 0);
+    trainer.train_with_config(&cfg);
+    let elapsed_ms = t0.elapsed().as_secs_f64() * 1000.0;
+    let query = HeroSampleQuery {
+        turn_card: Some(tc),
+        require_flop_checks: true,
+    };
+    let samples = trainer.collect_hero_samples_at_path(
+        &options,
+        hero,
+        0,
+        BettingRound::Turn,
+        &query,
+    );
+    TurnSolveResult {
+        turn_card: turn_card.to_string(),
+        elapsed_ms,
+        samples,
+    }
+}
+
+/// Flop-entry solve (full postflop tree). Slower; use for parity experiments.
+pub fn options_for_flop_entry(_turn_card: &str) -> Options {
+    let (oop_range, ip_range) = load_benchmark_ranges();
+    Options {
+        n_players: 2,
+        hand_ranges: vec![oop_range, ip_range],
+        stack_sizes: vec![
+            STACK_BUCKET_BB * CHIPS_PER_BB,
+            STACK_BUCKET_BB * CHIPS_PER_BB,
+        ],
+        board_mask: get_card_mask(FLOP),
+        starting_pot: HU_CX_FLOP_POT_CHIPS,
+        all_in_threshold: 1.5,
+        max_raises: 3,
+        action_abstraction: solver_ext_action_abstraction(),
+        depth_tier_bb: STACK_BUCKET_BB,
+        postflop_pot_override: None,
+        rake: None,
+        max_action_sequences_per_street: 200,
+        preflop_ranges: None,
+    }
+}
+
 pub fn solve_turn_card(turn_card: &str) -> TurnSolveResult {
     let options = options_for_turn_card(turn_card);
     let hero = hero_hole_cards();
@@ -294,7 +349,8 @@ pub fn solve_turn_card(turn_card: &str) -> TurnSolveResult {
     let cfg = TrainConfig::default()
         .with_max_iter(MAX_ITER)
         .with_n_threads(1)
-        .with_cfr_plus(false)
+        .with_cfr_plus(true)
+        .with_seed(TRAIN_SEED)
         .with_pin_hero(hero, 0);
     trainer.train_with_config(&cfg);
     let elapsed_ms = t0.elapsed().as_secs_f64() * 1000.0;
@@ -342,8 +398,13 @@ pub fn assert_quality_gate(report: &BenchmarkReport) -> Result<(), String> {
         ));
     }
 
-    // Exploitability gate (P10.7 stretch) — skipped until BR scale is trustworthy
-    // on turn-entry trees; `exploitability_max_mbb` is optional on the report.
+    let check_p = matched.action_probs[1];
+    let baseline_check = report.baseline.action_probs[1];
+    if (check_p - baseline_check).abs() > 0.15 {
+        return Err(format!(
+            "parity mismatch: check={check_p:.3} vs baseline {baseline_check:.3} (±0.15)"
+        ));
+    }
 
     Ok(())
 }

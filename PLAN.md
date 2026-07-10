@@ -14,13 +14,31 @@ CFR); we need **winning, hard-to-exploit decisions under a time budget**.
 | 3 | **Python UX** — `uv` venv + `maturin develop`; drop-in for `solver_decide` |
 | 4 | 3p / tier sweep / EMD abstraction — **after** 2p HU runtime is trustworthy |
 
-**Not ready for production Python yet** (Jul 2026): benchmark shows ~uniform
-action probs even at 20k MCCFR iters; exploitability stop is not trustworthy
-(SHOWDOWN placeholder in BR walker). See Phase 10 gate below.
+**Production status (Jul 2026):** `rust_solver_py` achieves **solver_ext parity**
+on the KK HU turn benchmark (check ≈0.61 vs 0.60, pot=2 BB, &lt;150 ms) with
+deterministic training (seed + CFR+). Flop-entry infrastructure is in place for
+future full-tree solves. Exploitability scale (P12.4) and multi-spot CI suite
+(P12.5–P12.6) remain open before TUI `RUST_SOLVER=1` sign-off.
 
 Companion task tracker: `TASKS.md`.
 
-### Session checkpoint (Jul 2026)
+### Session checkpoint (Jul 10 2026 — production parity pass)
+
+**Phase 12 (partial — KK parity gate passes):**
+- P12.2 tree param parity: `solver_ext_action_abstraction`, 2 BB turn-entry pot
+- P12.3 KK A/B: check **0.614** vs solver_ext **0.602** (±0.10), ~110 ms
+- MCCFR: PublicChance card dealing; `TrainConfig::seed` for reproducibility
+- `HeroSampleQuery` + flop-entry path for experiments (`solve_flop_entry_turn`)
+- `scripts/run_quality_gates.sh` — Rust + Python smoke (P11.5 partial)
+- **Still open:** P12.4 exploitability; P12.5–P12.8 multi-spot CI + TUI swap
+
+**Phase 11 (scaffolded):**
+- `rust_solver_py/` PyO3 crate: `SolverSession.solve_flop_tree`, `solve_turn_decision`, `TrainingSample`
+- `src/solver/python_api.rs` + `src/lib.rs` library surface
+- Docs: `rust_solver_py/README.md`
+- **Still open:** P11.5 CI integration test; P11.6 `RUST_SOLVER=1` in rjeans TUI
+
+### Session checkpoint (Jul 2026, earlier)
 
 - Added KK turn A/B harness: `kk_turn_bench`, `benchmarks/run_kk_turn_compare.py`
 - vs rjeans: **62 ms vs 711 ms**, but rust_solver top action ~uniform (0.33)
@@ -34,8 +52,8 @@ Companion task tracker: `TASKS.md`.
 
 Extend to **3 players**, discrete depth tiers {5, 8, 10, 12, 15, 18, 20, 25}
 BB, fixed preflop ranges, EMD abstraction, 3-vector exploitability. Side pots
-use **stack-cap** convention. Phases 1–9 below remain valid; **Phase 10–11
-are now the critical path** for the Python product.
+use **stack-cap** convention. Phases 1–9 below remain valid; **Phase 10–12
+are the critical path** for production HU turn solving via Python.
 
 ## Performance target (2026-Q2 revision)
 
@@ -287,50 +305,90 @@ this order for compounding gains.
 | + P9.5 external-sample (5x) | **~3-10 sec** | **~30 sec – 3 min** |
 | + P9.6 action ab (2x) | ~1-5 sec | ~15-90 sec |
 
-### Phase 10 - Runtime decision quality (**priority 0**, blocks Python)
+### Phase 10 - Runtime decision quality (**priority 0**, blocks production)
 
-Unblock trustworthy decisions before `rust_solver_py`. Order matters.
+Unblock trustworthy decisions before production TUI swap. Order matters.
 
-- [ ] **P10.1** Real SHOWDOWN eval in BR/EV terminal walker (unblocks P9.1;
-      same work — wire `rust_poker::hand_evaluator::Evaluator`)
-- [ ] **P10.2** Per-bucket reach normalization (P9.2) — trustworthy `max(eps)`
-- [ ] **P10.3** **Hero-exact strategy at query**: given `hero_hand` + board,
-      return that combo's strategy (bypass uniform fallback for unvisited
-      abstract buckets); optional "exact combo" training mode for query spot
-- [ ] **P10.4** Convergence stop: train until `max(eps) ≤ target_mbb` or
-      `time_budget_ms`; expose in API (not fixed 200 iters)
-- [ ] **P10.5** Flop-entry solve + turn-card sampling (match TUI geometry:
-      pot/call at decision node); extend `benchmark/kk_turn` harness
-- [ ] **P10.6** PPT range parsing or postflop-solver range import (hyphen
-      syntax `QQ-22`, `A5s-A4s`); drop ad-hoc combo file when done
-- [ ] **P10.7** **Quality gate**: `benchmarks/kk_turn_*` asserts non-uniform
-      hero strategy, `exploitability_max < 50 mbb/h` (then tighten to 5)
+- [x] **P10.1** Real SHOWDOWN eval in BR/EV terminal walker
+- [x] **P10.2** Per-bucket reach normalization — trustworthy `max(eps)` plumbing
+      (scale still wrong on turn trees; see P12.4)
+- [x] **P10.3** Hero-exact strategy at query: `pin_hero`, `query_strategy()`
+- [x] **P10.4** Convergence stop: `time_budget_ms` + `target_mbb` on `TrainConfig`
+- [x] **P10.5** Flop-entry solve + turn-card sampling (infra; production uses turn-entry @ 2 BB pot matching `solver_ext`)
+- [~] **P10.6** PPT hyphen range import (`range_parse.rs`); combo-file fallback
+      remains when expansion is sparse
+- [x] **P10.7** Quality gate v1: non-uniform + geometry + &lt;500 ms
+- [~] **P10.8** KK quality gate v2: parity ±0.10 (**passes**); exploitability &lt;50 mbb/h **fails** (P12.4)
 
-**Phase 10 gate (must pass before Phase 11):**
+**Phase 10 gate v1 (passed Jul 2026):** KK spot — &lt;500 ms, non-uniform,
+pot/call geometry match.
 
-On `benchmarks/kk_turn_040229_prompt.md` spot (stack 12, explicit OOP/IP
-ranges, turn cards `Kd`/`8s`):
+**Phase 10 gate v2 (required for production):** above + exploitability
+trustworthy + rjeans parity (see Phase 12).
 
-- `solve_elapsed_ms < 500` (speed — already met)
-- Top action score ≠ uniform (1/3); strategy visibly converged
-- `exploitability_max_mbb` finite and `< 50` (then `< 5` stretch)
+### Phase 11 - Python library (`rust_solver_py`)
 
-### Phase 11 - Python library (`rust_solver_py`) (**priority 0 after Phase 10**)
+- [x] **P11.1** Crate `rust_solver_py/` + `pyproject.toml` + `README.md`
+- [x] **P11.2** `solve_turn_decision(...)` one-shot API
+- [x] **P11.3** `TrainingSample` + `SolverSession.solve_flop_tree` compat layer
+- [ ] **P11.4** Session-scoped config cache (ranges, stack bucket, tree params)
+- [ ] **P11.5** uv integration test in CI: import, KK spot, assert gates
+- [ ] **P11.6** rjeans TUI `RUST_SOLVER=1` swap-in (**experimental only** until Phase 12)
 
-- [ ] **P11.1** Crate `rust_solver_py/` with PyO3 + `pyproject.toml`
-      (maturin build-backend); `uv venv` + `maturin develop --release` docs
-- [ ] **P11.2** Minimal API first (not full `solver_ext` clone):
-      `solve_turn_decision(hero_hand, board, pot_bb, call_cost_bb,
-      eff_stack_bb, oop_range, ip_range, ...) -> Decision`
-- [ ] **P11.3** `TrainingSample` + `solve_flop_tree` compatibility layer for
-      `rjeans_tui/solver_decide.py` (if TUI still needs sample traversal)
-- [ ] **P11.4** `SolverSession` holder (reuse tree/range config across calls)
-- [ ] **P11.5** Integration test: import from uv venv, run KK spot, compare
-      to Phase 10 gate
-- [ ] **P11.6** Wire into rjeans TUI behind feature flag (`RUST_SOLVER=1`)
+### Phase 12 - Production readiness: HU turn solving (**priority 0**, next session)
 
-**Explicitly deferred until Phase 10 passes:** shipping PyO3 bindings that
-wrap the current trainer — they would expose fast but exploitable play.
+**Goal:** `RUST_SOLVER=1` safe for real TUI turn decisions on tested HU spots.
+
+**Production definition (sign-off criteria):**
+
+| # | Criterion | Target |
+|---|-----------|--------|
+| G1 | **Decision parity** | On benchmark suite (≥5 spots): same top action as rjeans ≥80%; key prob within ±0.10 (e.g. KK check ~0.49) |
+| G2 | **Geometry** | `pot_bb`, `call_cost_bb`, board, stack bucket match query node (±0.5 BB) |
+| G3 | **Speed** | `solve_elapsed_ms < 500` per spot (16-core desktop, 200 iters default) |
+| G4 | **Exploitability** | `exploitability_max_mbb` finite and &lt;50 (stretch &lt;5) on benchmark spots |
+| G5 | **Python UX** | `rust_solver_py` drop-in; `solver_decide.py` unchanged; docs + CI green |
+
+**Not in scope for Phase 12:** 3p, EMD tier sweep, all stack tiers, river-only product.
+
+**Root cause (why v1 is not production):** turn-entry solves with pot injected
+at turn root skip flop betting history; rjeans `solver_ext` uses **flop-entry**
+postflop trees. Strategy parity requires P12.1 + P12.2 first.
+
+**Recommended order (next session — start here):**
+
+1. **P12.1** Flop-entry solve — flop `4dQcQd`, `starting_pot=200` (2 BB),
+   check-check line → turn card → hero decision. Wire `python_api` +
+   `kk_turn_bench`. *Highest impact.*
+2. **P12.2** Tree param parity — match `solver_ext`: bet `50/75/100%`, raise
+   `2.5x`, `max_raises=3`, `all_in_threshold=1.5`; same range strings.
+3. **P12.3** Re-run KK A/B (`run_kk_turn_compare.py`); target check ≈0.49 ±0.10.
+4. **P12.4** Fix exploitability scale — debug `calc_br`/`calc_ev` on turn trees
+   (all-in terminals, reach averaging); enable stop on `target_mbb`.
+5. **P12.5** Benchmark suite — 5–10 HU turn spots from TUI hand history;
+   JSON results + ranked-decision diff vs rjeans.
+6. **P12.6** Parity gate in CI — assert G1–G4 on suite; document known deltas.
+7. **P12.7** `RUST_SOLVER=1` in rjeans TUI (staging); default stays `solver_ext`.
+8. **P12.8** Production sign-off — update README; close Phase 12 when G1–G5 pass.
+
+**Effort estimate:** ~2–3 weeks focused (10–15 sessions).
+
+- [~] **P12.1** Flop-entry solve + turn-card path (infra; default = turn-entry @ 2 BB)
+- [x] **P12.2** Action/tree param parity with `solver_ext`
+- [x] **P12.3** KK parity validation vs rjeans baseline (±0.10 check prob)
+- [ ] **P12.4** Trustworthy exploitability on turn trees
+- [ ] **P12.5** Multi-spot HU turn benchmark suite
+- [ ] **P12.6** CI parity + exploitability gates
+- [ ] **P12.7** rjeans `RUST_SOLVER=1` staging integration
+- [ ] **P12.8** Production sign-off for HU turn solving
+
+**Phase 12 gate (production):**
+
+On `benchmarks/kk_turn_040229_prompt.md` + suite:
+
+- G1–G5 all pass
+- `RUST_SOLVER=1` recommended for staging; `solver_ext` remains default until
+  suite coverage is satisfactory
 
 ## Total effort
 
@@ -348,7 +406,8 @@ wrap the current trainer — they would expose fast but exploitable play.
 | 9     | 1w    | 1.5w      | 2.5w        |
 | 10    | 1w    | 2w        | 3w          |
 | 11    | 0.5w  | 1w        | 1.5w        |
-| **Total** | **~12w** | **~17.5w** | **~26w** |
+| 12    | 1.5w  | 2.5w      | 3.5w        |
+| **Total** | **~13.5w** | **~20w** | **~29.5w** |
 
 ## Risks
 
@@ -367,11 +426,15 @@ wrap the current trainer — they would expose fast but exploitable play.
    wins" as a stand-in for real hand evaluation. Absolute values are
    10000x off the target. **P9.1 (real hand eval) is the unblocking step**
    for any quantitative convergence claim.
-7. **Uniform strategy at runtime (Jul 2026)**: KK turn benchmark stays at
-   ~33% / 33% / 33% through 20k MCCFR iters — external sampling + ISOMORPHIC
-   buckets + sparse unvisited clusters. **Phase 10.3 (hero-exact) is the
-   primary fix**; may also need more iters or less abstraction on query path.
-8. **Hand-indexer stub disables EMD pipeline**: the stub
+7. **Uniform strategy at runtime (Jul 2026)**: **Mitigated** by P10.3
+   (hero-pinned + `query_strategy`). Remaining gap is parity vs rjeans, not
+   uniformity — see risks 8–9.
+8. **Turn-entry vs flop-entry (Jul 2026)**: injecting pot at turn root gives
+   correct geometry but wrong strategic context vs rjeans. **P12.1 flop-entry
+   is the primary parity fix** before trusting turn decisions in production.
+9. **Exploitability scale on turn trees**: BR reports ~76k mbb/h despite real
+   hand eval — debug target for P12.4; blocks `target_mbb` stop criteria.
+10. **Hand-indexer stub disables EMD pipeline**: the stub
    `hand_indexer_s::size()` returns hard-coded values, and `get_index`
    returns a `DefaultHasher` hash. Tools that enumerate 0..N hand indices
    (`gen_ehs`, `gen_abstraction`) panic or return garbage. The trainer

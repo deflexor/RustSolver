@@ -6,12 +6,11 @@ use rust_poker::constants::{RANK_TO_CHAR, SUIT_TO_CHAR};
 use rust_poker::hand_range::{get_card_mask, HandRange, HoleCards};
 
 use crate::cfr::{HeroDecisionSample, MCCFRTrainer, TrainConfig};
-use crate::options::Options;
+use crate::options::{solver_ext_action_abstraction, solver_ext_turn_action_abstraction, Options, HU_CX_FLOP_POT_CHIPS};
 use crate::range_parse::expand_ppt_range;
 use crate::state::BettingRound;
 
-const CHIPS_PER_BB: f32 = 100.0;
-/// Default pot at turn decision (TUI / rjeans KK spot geometry).
+/// Default pot at turn decision when using legacy turn-entry mode (6.16 BB).
 pub const DEFAULT_TURN_POT_CHIPS: u32 = 616;
 
 /// One hero decision node in `solver_ext.TrainingSample` shape.
@@ -207,6 +206,30 @@ fn fisher_yates_shuffle(items: &mut [String], seed: u64) {
     }
 }
 
+pub fn options_for_flop_entry(
+    flop: &str,
+    stack_bb: u32,
+    oop_range: &HandRange,
+    ip_range: &HandRange,
+    starting_pot_chips: u32,
+) -> Options {
+    Options {
+        n_players: 2,
+        hand_ranges: vec![oop_range.clone(), ip_range.clone()],
+        stack_sizes: vec![stack_bb * 100, stack_bb * 100],
+        board_mask: get_card_mask(flop),
+        starting_pot: starting_pot_chips,
+        all_in_threshold: 1.5,
+        max_raises: 3,
+        action_abstraction: solver_ext_turn_action_abstraction(),
+        depth_tier_bb: stack_bb,
+        postflop_pot_override: None,
+        rake: None,
+        max_action_sequences_per_street: 200,
+        preflop_ranges: None,
+    }
+}
+
 pub fn options_for_turn_card(
     turn_card: &str,
     flop: &str,
@@ -224,10 +247,7 @@ pub fn options_for_turn_card(
         starting_pot: turn_pot_chips,
         all_in_threshold: 1.5,
         max_raises: 3,
-        action_abstraction: crate::actions::ActionAbstraction {
-            bet_sizes: vec![vec![0.5, 0.75, 1.0], vec![0.5, 0.75, 1.0]],
-            raise_sizes: vec![vec![2.5], vec![2.5]],
-        },
+        action_abstraction: solver_ext_turn_action_abstraction(),
         depth_tier_bb: stack_bb,
         postflop_pot_override: None,
         rake: None,
@@ -270,7 +290,7 @@ fn sample_to_training(
     }
 }
 
-/// `solver_ext.SolverSession.solve_flop_tree` equivalent (turn-card sampling).
+/// `solver_ext.SolverSession.solve_flop_tree` equivalent (turn-entry per sampled card).
 pub fn solve_flop_tree(cfg: &SolveFlopTreeConfig) -> SolveFlopTreeResult {
     let t0 = Instant::now();
     let hero = parse_hero_hole(&cfg.hero_hand);
@@ -279,7 +299,9 @@ pub fn solve_flop_tree(cfg: &SolveFlopTreeConfig) -> SolveFlopTreeResult {
         cfg.oop_range.as_deref(),
         cfg.ip_range.as_deref(),
     );
-    let turn_pot = cfg.turn_pot_chips.unwrap_or(DEFAULT_TURN_POT_CHIPS);
+    let turn_pot = cfg
+        .turn_pot_chips
+        .unwrap_or(HU_CX_FLOP_POT_CHIPS);
     let turn_cards = if let Some(cards) = &cfg.turn_cards {
         cards.clone()
     } else {
@@ -296,15 +318,19 @@ pub fn solve_flop_tree(cfg: &SolveFlopTreeConfig) -> SolveFlopTreeResult {
             &ip_range,
             turn_pot,
         );
-        let mut trainer = MCCFRTrainer::init(options.clone());
-        let train_cfg = TrainConfig::default()
-            .with_max_iter(cfg.max_iter)
-            .with_n_threads(cfg.n_threads)
-            .with_cfr_plus(false)
-            .with_pin_hero(hero, hero_player);
+/// Deterministic training seed (KK benchmark / production default).
+pub const DEFAULT_TRAIN_SEED: u64 = 0x4b4b5f7475726e;
+
+    let mut trainer = MCCFRTrainer::init(options.clone());
+    let train_cfg = TrainConfig::default()
+        .with_max_iter(cfg.max_iter)
+        .with_n_threads(cfg.n_threads.max(1))
+        .with_cfr_plus(true)
+        .with_seed(DEFAULT_TRAIN_SEED)
+        .with_pin_hero(hero, hero_player);
         trainer.train_with_config(&train_cfg);
 
-        for street in [BettingRound::Flop, BettingRound::Turn, BettingRound::River] {
+        for street in [BettingRound::Turn, BettingRound::River] {
             let raw = trainer.collect_hero_samples(&options, hero, hero_player, street);
             for s in raw {
                 let ts = sample_to_training(&cfg.hero_hand, cfg.weip_flop, cfg.stack_bb, &s);

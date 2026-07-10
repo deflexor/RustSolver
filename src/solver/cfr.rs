@@ -20,7 +20,7 @@ use rayon::prelude::*;
 
 use crate::actions::Action;
 use crate::tree::{Tree, NodeId};
-use crate::nodes::{TerminalType, TerminalNode};
+use crate::nodes::{PublicChanceNode, TerminalType, TerminalNode};
 use crate::tree_builder::build_game_tree;
 use crate::infoset::{Infoset, InfosetTable, create_infosets};
 use crate::nodes::GameTreeNode;
@@ -134,21 +134,13 @@ fn generate_hand<R: Rng>(
     let mut used_cards_mask = board_mask;
     let mut board = [0u8; 7];
     let mut i = 2;
-    let card_dist = Uniform::from(0..52);
 
     while board_mask.count_ones() > 0 {
         board[i] = board_mask.trailing_zeros() as u8;
         board_mask ^= 1u64 << board_mask.trailing_zeros();
         i += 1;
     }
-    while i < 7 {
-        let c = card_dist.sample(rng);
-        if ((1u64 << c) & used_cards_mask) == 0 {
-            board[i] = c;
-            used_cards_mask |= 1u64 << c;
-            i += 1;
-        }
-    }
+    // Future street cards are dealt at PublicChance nodes during traversal.
 
     let mut hands: Vec<HoleCards> = Vec::with_capacity(hand_ranges.len());
     for (p, range) in hand_ranges.iter().enumerate() {
@@ -218,6 +210,8 @@ pub struct TrainConfig {
     pub time_budget_ms: Option<u64>,
     /// Pin hero hole cards every iteration for query-spot training (P10.3).
     pub pin_hero: Option<(HoleCards, u8)>,
+    /// RNG seed for reproducible training (`None` = thread_rng per iter).
+    pub seed: Option<u64>,
 }
 
 impl Default for TrainConfig {
@@ -231,6 +225,7 @@ impl Default for TrainConfig {
             n_threads: None,
             time_budget_ms: None,
             pin_hero: None,
+            seed: None,
         }
     }
 }
@@ -266,6 +261,10 @@ impl TrainConfig {
     }
     pub fn with_pin_hero(mut self, hero: HoleCards, player: u8) -> Self {
         self.pin_hero = Some((hero, player));
+        self
+    }
+    pub fn with_seed(mut self, seed: u64) -> Self {
+        self.seed = Some(seed);
         self
     }
 }
@@ -436,6 +435,7 @@ impl MCCFRTrainer {
         let cfr_plus = cfg.cfr_plus;
         let pin_hero = cfg.pin_hero;
         let time_budget_ms = cfg.time_budget_ms;
+        let train_seed = cfg.seed;
         let pool = rayon::ThreadPoolBuilder::new()
             .num_threads(n_threads)
             .build()
@@ -551,7 +551,12 @@ impl MCCFRTrainer {
                             if stop_train.load(Ordering::Relaxed) {
                                 return;
                             }
-                            let mut rng = SmallRng::from_rng(thread_rng()).unwrap();
+                            let mut rng = match train_seed {
+                                Some(s) => SmallRng::seed_from_u64(
+                                    s.wrapping_add(iter_idx as u64),
+                                ),
+                                None => SmallRng::from_rng(thread_rng()).unwrap(),
+                            };
                             a_self.run_one_iteration(&mut rng, iter_idx, cfr_plus, pin_hero);
                         });
                     }
@@ -580,15 +585,28 @@ impl MCCFRTrainer {
 
         let node = self.game_tree.get_node(node_id);
         match &node.data {
-            GameTreeNode::PublicChance(_) => self.external_sampling_mccfr(
-                rng,
-                node.children[0],
-                traverser,
-                hand,
-                cfr_reach,
-                prune,
-                cfr_plus,
-            ),
+            GameTreeNode::PublicChance(pc) => {
+                let possible = generate_possible_next_deals(pc.round, &hand);
+                if possible.is_empty() {
+                    return 0.0;
+                }
+                let card = possible[rng.gen_range(0, possible.len())];
+                let comm = (2..7).filter(|&i| hand.board[i] != 0).count();
+                if comm >= 5 {
+                    return 0.0;
+                }
+                let mut new_hand = hand;
+                new_hand.board[2 + comm] = card;
+                self.external_sampling_mccfr(
+                    rng,
+                    node.children[0],
+                    traverser,
+                    new_hand,
+                    cfr_reach,
+                    prune,
+                    cfr_plus,
+                )
+            }
             GameTreeNode::PrivateChance => self.external_sampling_mccfr(
                 rng,
                 node.children[0],
@@ -1229,7 +1247,18 @@ impl MCCFRTrainer {
             _ => panic!("abstract_br_terminal called on non-terminal node"),
         }
     }
+}
 
+/// Filter for extracting hero samples along a specific action line.
+#[derive(Debug, Clone, Default)]
+pub struct HeroSampleQuery {
+    /// When set, only traverse the turn (or river) chance branch dealing this card.
+    pub turn_card: Option<u8>,
+    /// When true, follow only check-check on the flop betting round.
+    pub require_flop_checks: bool,
+}
+
+impl MCCFRTrainer {
     /// One hero decision node extracted after training (benchmark harness).
     pub fn collect_hero_samples(
         &self,
@@ -1238,33 +1267,73 @@ impl MCCFRTrainer {
         hero_player: u8,
         target_street: BettingRound,
     ) -> Vec<HeroDecisionSample> {
-        let mut out = Vec::new();
-        let mut stack: Vec<(NodeId, GameState)> = vec![(0, GameState::from(options))];
+        self.collect_hero_samples_at_path(
+            options,
+            hero,
+            hero_player,
+            target_street,
+            &HeroSampleQuery::default(),
+        )
+    }
 
-        while let Some((node, state)) = stack.pop() {
+    pub fn collect_hero_samples_at_path(
+        &self,
+        options: &Options,
+        hero: HoleCards,
+        hero_player: u8,
+        target_street: BettingRound,
+        query: &HeroSampleQuery,
+    ) -> Vec<HeroDecisionSample> {
+        let mut out = Vec::new();
+        let mut stack: Vec<(NodeId, GameState, Vec<u8>)> =
+            vec![(0, GameState::from(options), Vec::new())];
+
+        while let Some((node, state, dealt)) = stack.pop() {
             let tree_node = self.game_tree.get_node(node);
             match &tree_node.data {
                 GameTreeNode::PrivateChance => {
                     if let Some(&child) = tree_node.children.first() {
-                        stack.push((child, state));
+                        stack.push((child, state, dealt));
                     }
                 }
-                GameTreeNode::PublicChance(_) => {
+                GameTreeNode::PublicChance(pc) => {
                     if let Some(&child) = tree_node.children.first() {
-                        stack.push((child, state.to_next_street()));
+                        let mut next_dealt = dealt.clone();
+                        if pc.round == BettingRound::Turn {
+                            if let Some(tc) = query.turn_card {
+                                if hero.0 == tc || hero.1 == tc {
+                                    continue;
+                                }
+                                if self.initial_board_mask & (1u64 << tc) != 0 {
+                                    continue;
+                                }
+                                next_dealt.push(tc);
+                            }
+                        }
+                        stack.push((child, state.to_next_street(), next_dealt));
                     }
                 }
                 GameTreeNode::Action(an) => {
                     if an.player == hero_player && state.round == target_street {
-                        if let Some(sample) =
-                            self.extract_hero_sample(an, &state, hero, hero_player)
-                        {
+                        if let Some(sample) = self.extract_hero_sample(
+                            an,
+                            &state,
+                            hero,
+                            hero_player,
+                            &dealt,
+                        ) {
                             out.push(sample);
                         }
                     }
                     for (i, action) in an.actions.iter().enumerate() {
+                        if query.require_flop_checks
+                            && state.round == BettingRound::Flop
+                            && !matches!(action, Action::Check)
+                        {
+                            continue;
+                        }
                         let next = state.apply_action(action);
-                        stack.push((tree_node.children[i], next));
+                        stack.push((tree_node.children[i], next, dealt.clone()));
                     }
                 }
                 GameTreeNode::Terminal(_) => {}
@@ -1273,16 +1342,35 @@ impl MCCFRTrainer {
         out
     }
 
+    fn board_mask_with_dealt(&self, dealt: &[u8]) -> u64 {
+        let mut mask = self.initial_board_mask;
+        for &c in dealt {
+            mask |= 1u64 << c;
+        }
+        mask
+    }
+
+    fn board_array_with_dealt(&self, dealt: &[u8]) -> [u8; 7] {
+        let mut board = self.board_from_mask();
+        let mut slot = 2 + self.initial_board_mask.count_ones() as usize;
+        for &c in dealt {
+            board[slot] = c;
+            slot += 1;
+        }
+        board
+    }
+
     fn extract_hero_sample(
         &self,
         an: &crate::nodes::ActionNode,
         state: &GameState,
         hero: HoleCards,
         hero_player: u8,
+        dealt: &[u8],
     ) -> Option<HeroDecisionSample> {
         const CHIPS_PER_BB: f32 = 100.0;
         let round_idx = self.abs_idx_for_round(state.round);
-        let mut cards = self.board_from_mask();
+        let mut cards = self.board_array_with_dealt(dealt);
         cards[0] = hero.0;
         cards[1] = hero.1;
         let cluster = self.get_cluster(round_idx, hero_player, &cards);
@@ -1363,7 +1451,7 @@ impl MCCFRTrainer {
         };
 
         Some(HeroDecisionSample {
-            board: board_mask_to_strings(self.initial_board_mask),
+            board: board_mask_to_strings(self.board_mask_with_dealt(dealt)),
             street: street.to_string(),
             pot_bb,
             call_cost_bb,

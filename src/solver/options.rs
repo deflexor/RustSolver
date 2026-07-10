@@ -5,6 +5,31 @@
 use rust_poker::hand_range::{HandRange, get_card_mask};
 use crate::actions::ActionAbstraction;
 
+/// Chip convention: 100 chips = 1 BB.
+pub const CHIPS_PER_BB: u32 = 100;
+
+/// Flop-entry pot for HU check/limp spots (`solver_ext` HU_CX default).
+pub const HU_CX_FLOP_POT_CHIPS: u32 = 2 * CHIPS_PER_BB;
+
+/// Action abstraction matching `solver_ext` production defaults:
+/// bet `50% / 75% / 100%` + all-in, raise `2.5x` on flop/turn/river.
+pub fn solver_ext_action_abstraction() -> ActionAbstraction {
+    let bets = vec![0.5, 0.75, 1.0];
+    ActionAbstraction {
+        bet_sizes: vec![bets.clone(), bets.clone(), bets],
+        raise_sizes: vec![vec![2.5], vec![2.5], vec![2.5]],
+    }
+}
+
+/// Turn-entry variant (turn + river streets only).
+pub fn solver_ext_turn_action_abstraction() -> ActionAbstraction {
+    let bets = vec![0.5, 0.75, 1.0];
+    ActionAbstraction {
+        bet_sizes: vec![bets.clone(), bets],
+        raise_sizes: vec![vec![2.5], vec![2.5]],
+    }
+}
+
 /// Scenario preset for the `solver` binary.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SolverPreset {

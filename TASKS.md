@@ -4,10 +4,25 @@ Companion to `PLAN.md`. Each task has an id, estimate, phase, dependencies,
 and a short spec. Tasks are grouped by phase, ordered by dependency within
 each phase.
 
-**Current north star (2026-Q3):** fast, low-exploitability postflop decisions
-via Python (`rust_solver_py` / PyO3 + `uv` + maturin), replacing rjeans
-`solver_ext`. **Phase 10 → Phase 11 is the critical path.** Phases 1–9
-remain for 3p / EMD / tier sweep after 2p HU runtime is trustworthy.
+**Current north star (2026-Q3):** production-ready **HU turn** decisions via
+`rust_solver_py`, replacing rjeans `solver_ext` in the TUI under `RUST_SOLVER=1`.
+**Phase 12 is the critical path.** Phases 1–9 remain deferred (3p, EMD, tiers).
+
+### Next session — start here
+
+1. **P12.1** Flop-entry solve (check-check flop → turn → hero node) in
+   `python_api.rs` + `kk_turn_bench`
+2. **P12.2** Tree param parity with `solver_ext` (bet sizes, raises, flop pot)
+3. **P12.3** KK A/B vs rjeans — target check prob ≈0.49 ±0.10
+4. See Phase 12 table below for full production roadmap
+
+**Quick commands:**
+
+```bash
+OUT_DIR=target/release/deps cargo run --release --bin kk_turn_bench
+OUT_DIR=target/release/deps cargo test --release --bin kk_turn_bench kk_turn_quality_gate -- --ignored
+cd rust_solver_py && maturin develop --release   # from activated .venv
+```
 
 Estimates are in **minutes** (matching `bd create --estimate` semantics so
 this can be re-imported into a tracker later).
@@ -161,30 +176,44 @@ vs leaf-eval) is the debug target.
 
 ---
 
-## Phase 10 - Runtime decision quality (**priority 0**, blocks Python)
+## Phase 10 - Runtime decision quality
 
-Must pass before `rust_solver_py` ships. See PLAN.md Phase 10 gate.
+| ID | Title | Est (min) | Deps | Priority | Status |
+|----|-------|-----------|------|----------|--------|
+| P10.1 | Real hand eval in BR/EV terminal walker; AA vs 22, AKs vs 72o unit tests | 1440 | P4.2 | 0 | done |
+| P10.2 | Per-bucket reach normalization; trustworthy `exploitability_max` plumbing | 240 | P10.1 | 0 | done (scale: see P12.4) |
+| P10.3 | Hero-exact strategy: `pin_hero`, `query_strategy()` at extract | 480 | P10.1 | 0 | done |
+| P10.4 | Convergence stop: `time_budget_ms` + `target_mbb` on `TrainConfig` | 180 | P10.2 | 0 | done |
+| P10.5 | Flop-entry solve + turn-card sampling; match TUI action paths | 360 | P0.6 | 0 | partial (infra; prod uses turn-entry @ 2 BB) |
+| P10.6 | PPT hyphen range import; replace combo-file fallback when sparse | 240 | P0.6b | 1 | partial |
+| P10.7 | KK quality gate v1: non-uniform + geometry + &lt;500 ms | 120 | P10.3 | 0 | done |
+| P10.8 | KK quality gate v2: parity ±0.10 + exploitability &lt;50 mbb/h | 120 | P12.4 | 0 | partial (parity passes) |
+
+## Phase 11 - Python library `rust_solver_py`
+
+| ID | Title | Est (min) | Deps | Priority | Status |
+|----|-------|-----------|------|----------|--------|
+| P11.1 | PyO3 crate + `pyproject.toml` + `rust_solver_py/README.md` | 240 | P10.7 | 0 | done |
+| P11.2 | `solve_turn_decision(...)` one-shot API | 360 | P11.1, P10.4 | 0 | done |
+| P11.3 | `TrainingSample` + `SolverSession.solve_flop_tree` compat | 480 | P11.2 | 1 | done |
+| P11.4 | Session-scoped config cache (ranges, stack, tree params) | 120 | P11.2 | 2 | open |
+| P11.5 | uv integration test: import, KK spot, assert gates | 120 | P11.2 | 0 | partial (`scripts/run_quality_gates.sh`) |
+| P11.6 | rjeans TUI `RUST_SOLVER=1` swap-in (staging only until P12) | 240 | P11.3, P12.6 | 2 | open |
+
+## Phase 12 - Production readiness: HU turn solving (**priority 0**)
+
+Production = G1–G5 in `PLAN.md` Phase 12 (parity, geometry, speed, exploitability, Python UX).
 
 | ID | Title | Est (min) | Deps | Priority |
 |----|-------|-----------|------|----------|
-| P10.1 | Real hand eval in BR/EV terminal walker (= P9.1); AA vs 22, AKs vs 72o unit tests | 1440 | P4.2 | 0 |
-| P10.2 | Per-bucket reach normalization (= P9.2); trustworthy `exploitability_max` | 240 | P10.1 | 0 |
-| P10.3 | Hero-exact strategy at query: given `hero_hand`, return combo strategy not bucket uniform; train/query path for queried combo | 480 | P10.1 | 0 |
-| P10.4 | Convergence stop: `time_budget_ms` + `target_mbb` in trainer API; wire to benchmark + future Python API | 180 | P10.2 | 0 |
-| P10.5 | Flop-entry solve + turn-card sampling; match TUI pot/call geometry on KK harness | 360 | P0.6 | 0 |
-| P10.6 | PPT hyphen range import (postflop-solver parser or Rust port); replace embedded combo file | 240 | P0.6b | 1 |
-| P10.7 | KK turn **quality gate**: non-uniform top action, `exploitability_max < 50 mbb/h` (stretch: 5) | 120 | P10.3, P10.4, P10.5 | 0 |
-
-## Phase 11 - Python library `rust_solver_py` (**priority 0 after Phase 10**)
-
-| ID | Title | Est (min) | Deps | Priority |
-|----|-------|-----------|------|----------|
-| P11.1 | PyO3 crate + `pyproject.toml` (maturin); `uv venv` + `maturin develop --release` in README | 240 | P10.7 | 0 |
-| P11.2 | `solve_turn_decision(...) -> Decision` minimal API (ranked actions + exploitability estimate) | 360 | P11.1, P10.4 | 0 |
-| P11.3 | `TrainingSample` + `SolverSession.solve_flop_tree` compat for `solver_decide.py` | 480 | P11.2, P10.5 | 1 |
-| P11.4 | Session-scoped config cache (ranges, stack bucket, tree params) | 120 | P11.2 | 2 |
-| P11.5 | uv integration test: import module, run KK spot, assert Phase 10 gate | 120 | P11.2 | 0 |
-| P11.6 | rjeans TUI feature flag `RUST_SOLVER=1` swap-in | 240 | P11.3, P11.5 | 2 |
+| P12.1 | Flop-entry solve: flop pot 2 BB, check-check → turn → query node; wire `python_api` + `kk_turn` | 2400 | P10.5 | 0 | partial |
+| P12.2 | Tree param parity with `solver_ext` (bet 50/75/100%, raise 2.5x, max_raises, all-in threshold) | 480 | P12.1 | 0 | done |
+| P12.3 | KK A/B vs rjeans: top action + check prob within ±0.10 of baseline | 360 | P12.1, P12.2 | 0 | done |
+| P12.4 | Fix exploitability scale on turn trees; enable `target_mbb` stop | 1440 | P10.2 | 0 |
+| P12.5 | Multi-spot HU turn benchmark suite (≥5 TUI spots) + JSON diff | 720 | P12.3 | 0 |
+| P12.6 | CI gates: parity (G1), exploitability (G4) on suite | 360 | P12.5, P12.4 | 0 |
+| P12.7 | `RUST_SOLVER=1` in rjeans TUI (staging); document rollback | 240 | P12.6, P11.3 | 1 |
+| P12.8 | Production sign-off: README + PLAN gate closed for HU turn | 120 | P12.6, P12.7 | 0 |
 
 ---
 
@@ -194,13 +223,13 @@ Must pass before `rust_solver_py` ships. See PLAN.md Phase 10 gate.
 Phase 0 (no deps) ──> P0.6 benchmark harness (done)
    |
    v
-Phase 10 (decision quality) ── GATE ──> Phase 11 (Python / uv / maturin)
+Phase 10 (v1 done) ──> Phase 11 (scaffolded) ──> Phase 12 (production) ── GATE
    ^
-   | (P9.1 hand eval, P9.2 reach overlap P10.1–P10.2)
+   | (P10.5 flop-entry ──> P12.1)
    |
 Phase 1
    |
-   +--> Phase 2 ... Phase 9 (3p, EMD, tier sweep — parallel / deferred)
+   +--> Phase 2 ... Phase 9 (3p, EMD, tier sweep — deferred)
 ```
 
 Legacy path (3p product):
@@ -252,22 +281,25 @@ Phase 8 (independent; feeds runtime via Options::preflop_ranges)
 | 8     | 2     | 420                |
 | 9     | 10    | 3420               |
 | 0.5   | 4     | 780                |
-| 10    | 7     | 3060               |
+| 10    | 8     | 3180               |
 | 11    | 6     | 1560               |
-| **Total** | **74** | **~20100 min (~33.5 work-weeks at 10h/week)** |
+| 12    | 8     | 6120               |
+| **Total** | **82** | **~26220 min (~43.7 work-weeks at 10h/week)** |
 
-Note: Phase 10–11 are **priority 0** for the Python runtime target. Phases
-1–9 estimates remain for the longer 3p / EMD roadmap and overlap with P10
-where noted (P9.1 ≡ P10.1, P9.2 ≡ P10.2).
+Note: **Phase 12 is priority 0** for production HU turn solving. Phases 1–9
+deferred. P10.7 v1 done; v2 (exploitability) moves to P10.8 / P12.4.
 
 ## Performance budget (2026-Q3 revision)
 
-**Python runtime target:** KK-class HU turn spots in **<500 ms** with
-**non-uniform, low-exploitability** strategy (Phase 10 gate). Speed alone
-is insufficient — Jul 2026 benchmark: 62 ms but ~uniform play.
+**Production target (Phase 12):** HU turn spots in **&lt;500 ms** with
+**rjeans parity** (top action match ≥80% on suite; key probs ±0.10) and
+**exploitability_max &lt;50 mbb/h**.
 
-**15-25BB tier target (unchanged):** Phase 9 speed work after Phase 10
-quality gate passes.
+**Current (Jul 2026):** ~110 ms KK spot, check **0.614** vs solver_ext **0.602** (pot=2 BB,
+call=0); exploitability scale still broken.
+
+**15-25BB tier target (unchanged):** Phase 9 speed work after Phase 12
+production gate for HU turn.
 
 ## Why this file and not `bd`
 
