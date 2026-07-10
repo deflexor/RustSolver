@@ -1,0 +1,209 @@
+{
+  "baselines": [
+    {
+      "spot_id": "kk_kd_check",
+      "solver_path": "solve_flop_tree",
+      "solve_elapsed_ms": 769.6,
+      "baseline_top_action": "call",
+      "baseline_check_prob": 0.6016296148300171,
+      "matched_sample": {
+        "board": [
+          "4d",
+          "Qc",
+          "Qd",
+          "Kd"
+        ],
+        "pot_bb": 2.0,
+        "call_cost_bb": 0.0,
+        "action_probs": [
+          0.0,
+          0.6016296148300171,
+          0.3983703851699829
+        ]
+      },
+      "decisions_ranked": [
+        {
+          "action": "call",
+          "raise_to_bb": null,
+          "score": 0.60163
+        },
+        {
+          "action": "raise",
+          "raise_to_bb": 1.0,
+          "score": 0.302719
+        },
+        {
+          "action": "raise",
+          "raise_to_bb": 2.0,
+          "score": 0.056579
+        },
+        {
+          "action": "raise",
+          "raise_to_bb": 1.5,
+          "score": 0.009088
+        }
+      ]
+    },
+    {
+      "spot_id": "kk_8s_check",
+      "solver_path": "solve_flop_tree",
+      "solve_elapsed_ms": 727.2,
+      "baseline_top_action": "raise",
+      "baseline_check_prob": 0.144439697265625,
+      "matched_sample": {
+        "board": [
+          "4d",
+          "Qc",
+          "Qd",
+          "8s"
+        ],
+        "pot_bb": 2.0,
+        "call_cost_bb": 0.0,
+        "action_probs": [
+          0.0,
+          0.144439697265625,
+          0.855560302734375
+        ]
+      },
+      "decisions_ranked": [
+        {
+          "action": "raise",
+          "raise_to_bb": 1.0,
+          "score": 0.589247
+        },
+        {
+          "action": "raise",
+          "raise_to_bb": 2.0,
+          "score": 0.247206
+        },
+        {
+          "action": "call",
+          "raise_to_bb": null,
+          "score": 0.14444
+        },
+        {
+          "action": "raise",
+          "raise_to_bb": 1.5,
+          "score": 0.009553
+        }
+      ]
+    },
+    {
+      "spot_id": "aqs_dry_turn",
+      "solver_path": "solve_single",
+      "solve_elapsed_ms": 617.4,
+      "baseline_top_action": "call",
+      "baseline_check_prob": 0.9996118545532227,
+      "matched_sample": {
+        "board": [
+          "2c",
+          "7d",
+          "9h",
+          "3s"
+        ],
+        "pot_bb": 2.0,
+        "call_cost_bb": 0.0,
+        "action_probs": [
+          0.0,
+          0.9996118545532227,
+          0.00038814303115941584
+        ]
+      },
+      "decisions_ranked": [
+        {
+          "action": "call",
+          "raise_to_bb": null,
+          "score": 0.999612
+        }
+      ]
+    },
+    {
+      "spot_id": "pocket88_paired",
+      "solver_path": "solve_single",
+      "solve_elapsed_ms": 623.5,
+      "baseline_top_action": "call",
+      "baseline_check_prob": 0.7729490995407104,
+      "matched_sample": {
+        "board": [
+          "4d",
+          "Qc",
+          "Qd",
+          "3c"
+        ],
+        "pot_bb": 2.0,
+        "call_cost_bb": 0.0,
+        "action_probs": [
+          0.0,
+          0.7729490995407104,
+          0.22705088555812836
+        ]
+      },
+      "decisions_ranked": [
+        {
+          "action": "call",
+          "raise_to_bb": null,
+          "score": 0.772949
+        },
+        {
+          "action": "raise",
+          "raise_to_bb": 1.0,
+          "score": 0.201354
+        },
+        {
+          "action": "raise",
+          "raise_to_bb": 2.0,
+          "score": 0.008692
+        },
+        {
+          "action": "raise",
+          "raise_to_bb": 1.5,
+          "score": 0.008502
+        }
+      ]
+    },
+    {
+      "spot_id": "jts_flush_draw",
+      "solver_path": "solve_single",
+      "solve_elapsed_ms": 570.6,
+      "baseline_top_action": "raise",
+      "baseline_check_prob": 0.08678251504898071,
+      "matched_sample": {
+        "board": [
+          "4c",
+          "9d",
+          "Kh",
+          "2s"
+        ],
+        "pot_bb": 2.0,
+        "call_cost_bb": 0.0,
+        "action_probs": [
+          0.0,
+          0.08678251504898071,
+          0.9132174253463745
+        ]
+      },
+      "decisions_ranked": [
+        {
+          "action": "raise",
+          "raise_to_bb": 2.0,
+          "score": 0.668166
+        },
+        {
+          "action": "raise",
+          "raise_to_bb": 1.0,
+          "score": 0.225891
+        },
+        {
+          "action": "call",
+          "raise_to_bb": null,
+          "score": 0.086783
+        },
+        {
+          "action": "raise",
+          "raise_to_bb": 1.5,
+          "score": 0.00958
+        }
+      ]
+    }
+  ]
+}

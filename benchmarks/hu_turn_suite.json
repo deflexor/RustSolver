@@ -11,7 +11,7 @@
       "query_call_bb": 0.0,
       "stack_bb": 12,
       "oop_range": "66+,A8s+,A5s-A4s,AJo+,K9s+,KQo,QTs+,JTs,96s+,85s+,75s+,65s,54s",
-      "ip_range": "QQ-22,AQs-A2s,ATo+,K5s+,KJo+,Q8s+,J8s+,T7s+,96s+,86s+,75s+,64s+,53s+",
+      "ip_range": "QQ-22,AQs-A2s,ATo+,K5s+,KJo+,Q8s+,T7s+,96s+,86s+,75s+,64s+,53s+",
       "baseline_top_action": "call",
       "baseline_check_prob": 0.6016,
       "measure_exploitability": true
@@ -26,8 +26,8 @@
       "stack_bb": 12,
       "oop_range": "66+,A8s+,A5s-A4s,AJo+,K9s+,KQo,QTs+,JTs,96s+,85s+,75s+,65s,54s",
       "ip_range": "QQ-22,AQs-A2s,ATo+,K5s+,KJo+,Q8s+,J8s+,T7s+,96s+,86s+,75s+,64s+,53s+",
-      "baseline_top_action": "call",
-      "baseline_check_prob": null,
+      "baseline_top_action": "raise",
+      "baseline_check_prob": 0.1444,
       "measure_exploitability": false
     },
     {
@@ -40,8 +40,8 @@
       "stack_bb": 12,
       "oop_range": "66+,A8s+,A5s-A4s,AJo+,K9s+,KQo,QTs+,JTs,96s+,85s+,75s+,65s,54s",
       "ip_range": "QQ-22,AQs-A2s,ATo+,K5s+,KJo+,Q8s+,J8s+,T7s+,96s+,86s+,75s+,64s+,53s+",
-      "baseline_top_action": null,
-      "baseline_check_prob": null,
+      "baseline_top_action": "call",
+      "baseline_check_prob": 0.9996,
       "measure_exploitability": false
     },
     {
@@ -54,8 +54,8 @@
       "stack_bb": 12,
       "oop_range": "66+,A8s+,A5s-A4s,AJo+,K9s+,KQo,QTs+,JTs,96s+,85s+,75s+,65s,54s",
       "ip_range": "QQ-22,AQs-A2s,ATo+,K5s+,KJo+,Q8s+,J8s+,T7s+,96s+,86s+,75s+,64s+,53s+",
-      "baseline_top_action": null,
-      "baseline_check_prob": null,
+      "baseline_top_action": "call",
+      "baseline_check_prob": 0.7729,
       "measure_exploitability": false
     },
     {
@@ -68,8 +68,8 @@
       "stack_bb": 12,
       "oop_range": "66+,A8s+,A5s-A4s,AJo+,K9s+,KQo,QTs+,JTs,96s+,85s+,75s+,65s,54s",
       "ip_range": "QQ-22,AQs-A2s,ATo+,K5s+,KJo+,Q8s+,J8s+,T7s+,96s+,86s+,75s+,64s+,53s+",
-      "baseline_top_action": null,
-      "baseline_check_prob": null,
+      "baseline_top_action": "raise",
+      "baseline_check_prob": 0.0868,
       "measure_exploitability": false
     }
   ]

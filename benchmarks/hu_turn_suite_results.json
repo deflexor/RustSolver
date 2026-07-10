@@ -38,7 +38,7 @@
             "score": 0.009060024283826351
           }
         ],
-        "exploitability_max_mbb": 443.5257873535156,
+        "exploitability_max_mbb": 328.1015930175781,
         "matched_sample": {
           "action_probs": [
             0.0,
@@ -60,7 +60,7 @@
             0.02349940687417984
           ]
         },
-        "solve_elapsed_ms": 35.199465,
+        "solve_elapsed_ms": 40.915838,
         "spot_id": "kk_kd_check",
         "top_action": "call"
       },
@@ -120,7 +120,7 @@
             0.017213337123394012
           ]
         },
-        "solve_elapsed_ms": 32.102782000000005,
+        "solve_elapsed_ms": 35.961661,
         "spot_id": "kk_8s_check",
         "top_action": "call"
       },
@@ -180,7 +180,7 @@
             0.016240157186985016
           ]
         },
-        "solve_elapsed_ms": 35.889921,
+        "solve_elapsed_ms": 33.675457,
         "spot_id": "aqs_dry_turn",
         "top_action": "call"
       },
@@ -240,7 +240,7 @@
             0.012670475989580154
           ]
         },
-        "solve_elapsed_ms": 31.92325,
+        "solve_elapsed_ms": 42.211547,
         "spot_id": "pocket88_paired",
         "top_action": "raise"
       },
@@ -300,11 +300,60 @@
             0.012533807195723057
           ]
         },
-        "solve_elapsed_ms": 31.218809,
+        "solve_elapsed_ms": 31.645488999999998,
         "spot_id": "jts_flush_draw",
         "top_action": "raise"
       }
     ],
-    "total_elapsed_ms": 75293.584051
-  }
+    "total_elapsed_ms": 74308.43229699999
+  },
+  "comparisons": [
+    {
+      "spot_id": "kk_kd_check",
+      "rust_top_action": "call",
+      "rjeans_top_action": "call",
+      "rust_check_prob": 0.614457368850708,
+      "rjeans_check_prob": 0.6016296148300171,
+      "parity_ok": true,
+      "parity_reason": "top_action"
+    },
+    {
+      "spot_id": "kk_8s_check",
+      "rust_top_action": "call",
+      "rjeans_top_action": "raise",
+      "rust_check_prob": 0.4590551555156708,
+      "rjeans_check_prob": 0.144439697265625,
+      "parity_ok": false,
+      "parity_reason": "mismatch"
+    },
+    {
+      "spot_id": "aqs_dry_turn",
+      "rust_top_action": "call",
+      "rjeans_top_action": "call",
+      "rust_check_prob": 0.42424243688583374,
+      "rjeans_check_prob": 0.9996118545532227,
+      "parity_ok": true,
+      "parity_reason": "top_action"
+    },
+    {
+      "spot_id": "pocket88_paired",
+      "rust_top_action": "raise",
+      "rjeans_top_action": "call",
+      "rust_check_prob": 0.2507636547088623,
+      "rjeans_check_prob": 0.7729490995407104,
+      "parity_ok": false,
+      "parity_reason": "mismatch"
+    },
+    {
+      "spot_id": "jts_flush_draw",
+      "rust_top_action": "raise",
+      "rjeans_top_action": "raise",
+      "rust_check_prob": 0.24215786159038544,
+      "rjeans_check_prob": 0.08678251504898071,
+      "parity_ok": true,
+      "parity_reason": "top_action"
+    }
+  ],
+  "parity_matches": 3,
+  "parity_total": 5
 }

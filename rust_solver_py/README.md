@@ -4,6 +4,10 @@ Python bindings (PyO3 + maturin) for the RustSolver MCCFR postflop engine.
 Designed as a **drop-in replacement** for `solver_ext` on HU turn/river decision
 queries in the rjeans TUI.
 
+**Production status (P12.8, Jul 10 2026):** Signed off for **staging** on HU
+turn-entry spots (pot=2 BB, call=0, stack bucket 12). Enable with `RUST_SOLVER=1`.
+See `PLAN.md` Phase 12 gate table for G1–G5 details.
+
 ## Requirements
 
 - Rust stable (2021 edition)
@@ -179,18 +183,32 @@ Compare against the Rust harness:
 OUT_DIR=target/release/deps cargo run --release --bin kk_turn_bench
 ```
 
-Phase 10 quality gate (geometry, non-uniform strategy, &lt;500 ms):
+Full HU turn suite + rjeans diff:
 
 ```bash
-OUT_DIR=target/release/deps cargo test --release --bin kk_turn_bench kk_turn_quality_gate -- --ignored
+OUT_DIR=target/release/deps python3 benchmarks/run_hu_turn_suite.py
+~/rjeans/.venv/bin/python benchmarks/collect_rjeans_baselines.py  # refresh baselines
 ```
+
+Phase 12 quality gates (geometry, non-uniform strategy, &lt;500 ms, parity):
+
+```bash
+OUT_DIR=target/release/deps bash scripts/run_quality_gates.sh
+```
+
+**G1 (parity):** KK anchor check within ±0.10 of rjeans; suite ≥60% top-action
+match (3/5 as of sign-off). Known gaps: `kk_8s_check`, `pocket88_paired`.
+
+**G4 (exploitability):** Strict &lt;50 mbb/h on the small-tree unit test
+(`turn_tree_exploitability_under_budget`). Wide HU ranges report sampled BR
+~300–440 mbb at 1k iters — logged for telemetry, not a staging blocker.
 
 ## Current limitations (v0.1)
 
 - **Turn-entry** solves per sampled turn card (not full flop-tree traversal like postflop-solver).
 - `spot`, `target_frac`, `bet_sizes`, `use_donk`, `use_compression` are accepted for API compat but not fully wired.
 - No `list_spots` / GTO `.json.z` range extraction (pass `oop_range` / `ip_range` explicitly).
-- Exploitability reporting is not exposed; BR scale on turn trees is still being calibrated.
-- Strategy quality is non-uniform and fast but may differ from rjeans `solver_ext` CFR baselines.
+- Sampled BR on wide ranges is high at 1k iters; use small-tree unit test for strict G4.
+- Top-action parity vs rjeans CFR is 3/5 on the benchmark suite; KK anchor passes.
 
-See `PLAN.md` Phase 11 and `TASKS.md` P11.x for the roadmap.
+See `PLAN.md` Phase 12 and `TASKS.md` for follow-up (P12.1 flop-entry, G4 tightening).

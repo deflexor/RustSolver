@@ -1,5 +1,8 @@
 ## Information Abstraction
 
+Ship path for HU turn decisions: see **`PLAN.md`**, **`TASKS.md`**, and
+**`rust_solver_py/README.md`** (P12.8 staging sign-off, Jul 2026).
+
  - Preflop: isomorphism
  - Flop: potential-aware
  - Turn: EMD

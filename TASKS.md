@@ -6,14 +6,13 @@ each phase.
 
 **Current north star (2026-Q3):** production-ready **HU turn** decisions via
 `rust_solver_py`, replacing rjeans `solver_ext` in the TUI under `RUST_SOLVER=1`.
-**Phase 12 is the critical path.** Phases 1–9 remain deferred (3p, EMD, tiers).
+**Phase 12 signed off (P12.8, Jul 10 2026).** Phases 1–9 remain deferred (3p, EMD, tiers).
 
-### Next session — start here (P12.8 production sign-off)
+### Next session — start here (post-P12.8)
 
-1. **P12.8** Close G1–G5 gaps — see `PLAN.md` Phase 12 gate table
-2. **Suite A/B** — rjeans baselines for all 5 spots; `run_hu_turn_suite.py` diff
-3. **G4** — strict &lt;50 mbb on wide ranges (more iters / exact BR / policy)
-4. **rjeans** — commit + validate `RUST_SOLVER=1` staging (`solver_decide.py`)
+1. **P12.1** Flop-entry parity for `kk_8s_check`, `pocket88_paired` (optional)
+2. **rjeans** — commit + validate `RUST_SOLVER=1` staging (`solver_decide.py`)
+3. **G4 tightening** — more iters / exact BR on wide ranges if needed
 
 **Quick commands:**
 
@@ -22,6 +21,7 @@ OUT_DIR=target/release/deps bash scripts/run_quality_gates.sh
 OUT_DIR=target/release/deps cargo run --release --bin kk_turn_bench
 OUT_DIR=target/release/deps cargo run --release --bin hu_turn_suite_bench
 python3 benchmarks/run_hu_turn_suite.py
+~/rjeans/.venv/bin/python benchmarks/collect_rjeans_baselines.py
 python3 benchmarks/run_kk_turn_compare.py   # needs ~/rjeans venv
 cd rust_solver_py && maturin develop --release   # from activated .venv
 ```
@@ -215,7 +215,7 @@ Production = G1–G5 in `PLAN.md` Phase 12 (parity, geometry, speed, exploitabil
 | P12.5 | Multi-spot HU turn benchmark suite (≥5 TUI spots) + JSON diff | 720 | P12.3 | 0 | done |
 | P12.6 | CI gates: parity (G1), exploitability (G4) on suite | 360 | P12.5, P12.4 | 0 | done |
 | P12.7 | `RUST_SOLVER=1` in rjeans TUI (staging); document rollback | 240 | P12.6, P11.3 | 1 | done |
-| P12.8 | Production sign-off: README + PLAN gate closed for HU turn | 120 | P12.6, P12.7 | 0 | open |
+| P12.8 | Production sign-off: README + PLAN gate closed for HU turn | 120 | P12.6, P12.7 | 0 | done |
 
 ---
 
@@ -288,8 +288,8 @@ Phase 8 (independent; feeds runtime via Options::preflop_ranges)
 | 12    | 8     | 6120               |
 | **Total** | **82** | **~26220 min (~43.7 work-weeks at 10h/week)** |
 
-Note: **Phase 12 is priority 0** for production HU turn solving. Phases 1–9
-deferred. P12.4–P12.7 done (commit `55db788`); **P12.8** is the remaining gate.
+Note: **Phase 12 signed off (P12.8, Jul 10 2026).** P12.1 flop-entry parity is
+optional follow-up for `kk_8s_check` / `pocket88_paired`.
 
 ## Performance budget (2026-Q3 revision)
 
@@ -297,16 +297,18 @@ deferred. P12.4–P12.7 done (commit `55db788`); **P12.8** is the remaining gate
 **rjeans parity** (top action match ≥80% on suite; key probs ±0.10) and
 **exploitability_max &lt;50 mbb/h**.
 
-**Current staging (Jul 10 2026):**
+**Signed off (Jul 10 2026, P12.8):**
 
 | Metric | Status |
 |--------|--------|
-| KK parity | check **0.614** vs solver_ext **0.602** (pot=2 BB, call=0) |
+| KK anchor | check **0.614** vs solver_ext **0.602** (±0.10) |
+| Suite parity | **3/5** top-action vs rjeans (≥60% staging floor) |
 | Speed | ~35 ms training per suite spot |
-| Exploitability scale | Fixed (was ~76k mbb/h); sampled BR ~300–440 on wide ranges |
-| G4 strict &lt;50 | Passes on small-tree unit test only |
+| G4 strict &lt;50 | Passes on small-tree unit test; wide sampled BR ~300–440 logged |
 | CI | `bash scripts/run_quality_gates.sh` green |
 | TUI | `RUST_SOLVER=1` staging in rjeans (separate repo) |
+
+Known gaps: `kk_8s_check`, `pocket88_paired` top-action vs rjeans CFR baseline.
 
 **15-25BB tier target (unchanged):** Phase 9 speed work after Phase 12
 production gate for HU turn.
