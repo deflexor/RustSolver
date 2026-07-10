@@ -1,0 +1,16 @@
+[package]
+name = "rust_solver_py"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "rust_solver_py"
+crate-type = ["cdylib"]
+
+[dependencies]
+pyo3 = { version = "0.23", features = ["extension-module"] }
+rust_solver = { path = ".." }
+rust_poker = "0.1.5"
+
+[patch.crates-io]
+rust_poker = { path = "../vendor/rust_poker" }

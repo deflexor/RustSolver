@@ -2,6 +2,7 @@
 Cargo.lock
 *.o
 /target
+rust_solver_py/target/
 
 # Beads / Dolt files (added by bd init)
 .dolt/

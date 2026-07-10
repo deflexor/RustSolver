@@ -7,6 +7,10 @@ edition = "2018"
 [profile.bench]
 debug = true
 
+[lib]
+name = "rust_solver"
+path = "src/lib.rs"
+
 [[bin]]
 name = "solver"
 path = "src/solver/main.rs"
