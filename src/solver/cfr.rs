@@ -125,7 +125,12 @@ fn hand_conflicts(hand: HoleCards, board_mask: u64) -> bool {
     mask & board_mask != 0
 }
 
-fn generate_hand<R: Rng>(rng: &mut R, mut board_mask: u64, hand_ranges: &[HandRange]) -> TrainHand {
+fn generate_hand<R: Rng>(
+    rng: &mut R,
+    mut board_mask: u64,
+    hand_ranges: &[HandRange],
+    pin_hero: Option<(HoleCards, u8)>,
+) -> TrainHand {
     let mut used_cards_mask = board_mask;
     let mut board = [0u8; 7];
     let mut i = 2;
@@ -146,16 +151,33 @@ fn generate_hand<R: Rng>(rng: &mut R, mut board_mask: u64, hand_ranges: &[HandRa
     }
 
     let mut hands: Vec<HoleCards> = Vec::with_capacity(hand_ranges.len());
-    for range in hand_ranges {
-        loop {
-            let c = range.hands.choose(rng).unwrap();
-            let combo_mask = (1u64 << c.0) | (1u64 << c.1);
-            if (combo_mask & used_cards_mask) == 0 {
-                used_cards_mask |= combo_mask;
-                hands.push(*c);
-                break;
+    for (p, range) in hand_ranges.iter().enumerate() {
+        if let Some((hero, hero_p)) = pin_hero {
+            if p == usize::from(hero_p) {
+                hands.push(hero);
+                used_cards_mask |= (1u64 << hero.0) | (1u64 << hero.1);
+                continue;
             }
         }
+        let valid: Vec<HoleCards> = range
+            .hands
+            .iter()
+            .copied()
+            .filter(|c| {
+                let combo_mask = (1u64 << c.0) | (1u64 << c.1);
+                combo_mask & used_cards_mask == 0
+            })
+            .collect();
+        let Some(c) = valid.choose(rng) else {
+            // No legal combo for this player; caller will get a partial hand.
+            return TrainHand {
+                board,
+                hands,
+            };
+        };
+        let combo_mask = (1u64 << c.0) | (1u64 << c.1);
+        used_cards_mask |= combo_mask;
+        hands.push(*c);
     }
 
     TrainHand { board, hands }
@@ -192,6 +214,10 @@ pub struct TrainConfig {
     pub cfr_plus: bool,
     /// Rayon worker count. `None` uses `available_parallelism()` (P9.3).
     pub n_threads: Option<usize>,
+    /// Stop training after this wall-clock budget (P10.4).
+    pub time_budget_ms: Option<u64>,
+    /// Pin hero hole cards every iteration for query-spot training (P10.3).
+    pub pin_hero: Option<(HoleCards, u8)>,
 }
 
 impl Default for TrainConfig {
@@ -203,6 +229,8 @@ impl Default for TrainConfig {
             convergence_path: None,
             cfr_plus: false,
             n_threads: None,
+            time_budget_ms: None,
+            pin_hero: None,
         }
     }
 }
@@ -230,6 +258,14 @@ impl TrainConfig {
     }
     pub fn with_n_threads(mut self, n: usize) -> Self {
         self.n_threads = Some(n);
+        self
+    }
+    pub fn with_time_budget_ms(mut self, ms: u64) -> Self {
+        self.time_budget_ms = Some(ms);
+        self
+    }
+    pub fn with_pin_hero(mut self, hero: HoleCards, player: u8) -> Self {
+        self.pin_hero = Some((hero, player));
         self
     }
 }
@@ -336,9 +372,23 @@ impl MCCFRTrainer {
     /// opponent infosets one action is sampled from their strategy.
     /// This replaces the prior pattern of one full traversal per player
     /// per iteration (~`n_players`× less tree work per iteration).
-    fn run_one_iteration<R: Rng>(&self, rng: &mut R, iter_idx: usize, cfr_plus: bool) {
+    fn run_one_iteration<R: Rng>(
+        &self,
+        rng: &mut R,
+        iter_idx: usize,
+        cfr_plus: bool,
+        pin_hero: Option<(HoleCards, u8)>,
+    ) {
         const PRUNE_THRESHOLD: usize = 10_000_000;
-        let hand = generate_hand(rng, self.initial_board_mask, &self.hand_ranges);
+        let hand = generate_hand(
+            rng,
+            self.initial_board_mask,
+            &self.hand_ranges,
+            pin_hero,
+        );
+        if hand.hands.len() != self.hand_ranges.len() {
+            return;
+        }
         let q: f32 = rng.gen();
         let prune = iter_idx > PRUNE_THRESHOLD && q > 0.05;
         let n_players = self.hand_ranges.len();
@@ -384,6 +434,8 @@ impl MCCFRTrainer {
             .map(|p| convergence::Recorder::new(p));
 
         let cfr_plus = cfg.cfr_plus;
+        let pin_hero = cfg.pin_hero;
+        let time_budget_ms = cfg.time_budget_ms;
         let pool = rayon::ThreadPoolBuilder::new()
             .num_threads(n_threads)
             .build()
@@ -484,6 +536,12 @@ impl MCCFRTrainer {
                 pool.install(|| {
                     let batch_size = (n_threads * BATCH_MULTIPLIER).max(1);
                     while !stop_train.load(Ordering::Relaxed) {
+                        if let Some(budget) = time_budget_ms {
+                            if started.elapsed().as_millis() as u64 >= budget {
+                                stop_train.store(true, Ordering::Relaxed);
+                                break;
+                            }
+                        }
                         let batch_start = t_train.fetch_add(batch_size);
                         if batch_start >= max_iter {
                             break;
@@ -494,7 +552,7 @@ impl MCCFRTrainer {
                                 return;
                             }
                             let mut rng = SmallRng::from_rng(thread_rng()).unwrap();
-                            a_self.run_one_iteration(&mut rng, iter_idx, cfr_plus);
+                            a_self.run_one_iteration(&mut rng, iter_idx, cfr_plus, pin_hero);
                         });
                     }
                 });
@@ -1228,7 +1286,7 @@ impl MCCFRTrainer {
         cards[0] = hero.0;
         cards[1] = hero.1;
         let cluster = self.get_cluster(round_idx, hero_player, &cards);
-        let strategy = self.infosets[an.index].final_strategy_or_uniform(cluster);
+        let strategy = self.infosets[an.index].query_strategy(cluster);
 
         let mut fold_p = 0.0f32;
         let mut call_p = 0.0f32;
@@ -1620,7 +1678,7 @@ mod tests {
         let options = default_turn_solve();
         let trainer = MCCFRTrainer::init(options);
         let mut rng = SmallRng::from_rng(thread_rng()).unwrap();
-        trainer.run_one_iteration(&mut rng, 0, false);
+        trainer.run_one_iteration(&mut rng, 0, false, None);
         let mut moved = 0usize;
         for row in trainer.infosets.iter() {
             for infoset in row.initialized_infosets() {
@@ -1637,7 +1695,7 @@ mod tests {
         );
     }
 
-    /// P9.1: known hand ranks at SHOWDOWN via the BR terminal walker.
+    /// P9.1 / P10.1: known hand ranks at SHOWDOWN via the BR terminal walker.
     #[test]
     fn showdown_eval_aa_beats_22() {
         setup_out_dir();
@@ -1655,11 +1713,32 @@ mod tests {
         options.action_abstraction.raise_sizes = vec![vec![3.0]];
 
         let trainer = MCCFRTrainer::init(options);
-        let op = trainer.initial_reach();
-        let board = trainer.board_from_mask();
-        // Walk to the first terminal (check-check line) for a payoff probe.
         let br = trainer.calc_br();
         assert!(br[0] > br[1], "AA should beat 22 in BR ordering: {:?} vs {:?}", br[0], br[1]);
-        let _ = (op, board);
+    }
+
+    #[test]
+    fn showdown_eval_aks_beats_72o() {
+        setup_out_dir();
+        init_cards();
+        use rust_poker::hand_range::HandRange;
+
+        let mut options = default_turn_solve();
+        options.board_mask = get_card_mask("4d5d7s3c2h");
+        options.hand_ranges = vec![
+            HandRange::from_string("AsKs".to_string()),
+            HandRange::from_string("7d2c".to_string()),
+        ];
+        options.action_abstraction.bet_sizes = vec![vec![0.5]];
+        options.action_abstraction.raise_sizes = vec![vec![3.0]];
+
+        let trainer = MCCFRTrainer::init(options);
+        let br = trainer.calc_br();
+        assert!(
+            br[0] > br[1],
+            "AKs should beat 72o in BR ordering: {:?} vs {:?}",
+            br[0],
+            br[1]
+        );
     }
 }

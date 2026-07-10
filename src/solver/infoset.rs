@@ -55,6 +55,22 @@ impl InfosetRow {
         }
     }
 
+    /// Hero-exact query strategy (P10.3): prefer converged average strategy;
+    /// if the cluster was visited but `strategy_sum` is still empty, use
+    /// regret-matching; otherwise uniform.
+    pub fn query_strategy(&self, cluster: usize) -> Vec<f32> {
+        match self.get(cluster) {
+            Some(infoset) => {
+                if infoset.has_strategy_mass() {
+                    infoset.get_final_strategy()
+                } else {
+                    infoset.get_strategy()
+                }
+            }
+            None => uniform_strategy(self.n_actions),
+        }
+    }
+
     /// Current strategy for external-sampling opponent nodes.
     pub fn strategy_or_uniform(&self, cluster: usize) -> Vec<f32> {
         match self.get(cluster) {
@@ -246,6 +262,10 @@ impl Infoset {
         strategy
     }
 
+    pub fn has_strategy_mass(&self) -> bool {
+        self.strategy_sum_snapshot().iter().any(|&s| s > 0)
+    }
+
     pub fn add_regret(&self, i: usize, delta: i32) {
         let _ = self.regrets[i].fetch_update(Ordering::Relaxed, Ordering::Relaxed, |cur| {
             let next =
@@ -312,6 +332,17 @@ mod tests {
         info.floor_regrets_at_zero();
         assert_eq!(info.regret(0), 0);
         assert_eq!(info.regret(1), 50);
+    }
+
+    #[test]
+    fn query_strategy_uses_regrets_when_no_strategy_mass() {
+        let mut row = InfosetRow::new();
+        row.ensure_capacity(1, 3);
+        row.get_or_init(0).add_regret(0, 0);
+        row.get_or_init(0).add_regret(1, 200);
+        row.get_or_init(0).add_regret(2, 0);
+        let s = row.query_strategy(0);
+        assert!((s[1] - 1.0).abs() < 1e-6);
     }
 
     #[test]

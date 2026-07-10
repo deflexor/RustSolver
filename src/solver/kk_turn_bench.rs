@@ -10,6 +10,7 @@ mod options;
 mod tree_builder;
 mod card_abstraction;
 mod infoset;
+mod range_parse;
 mod cfr;
 mod benchmark;
 

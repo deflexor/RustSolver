@@ -9,6 +9,7 @@ use rust_poker::hand_range::{get_card_mask, HandRange, HoleCards};
 
 use crate::cfr::{HeroDecisionSample, MCCFRTrainer, TrainConfig};
 use crate::options::Options;
+use crate::range_parse::expand_ppt_range;
 use crate::state::BettingRound;
 
 pub const OOP_RANGE: &str =
@@ -23,9 +24,11 @@ pub const QUERY_CALL_BB: f32 = 0.0;
 pub const STACK_BUCKET_BB: u32 = 12;
 pub const MAX_ITER: usize = 200;
 pub const TURN_CARD_LIMIT: usize = 2;
-pub const SAMPLE_TOLERANCE_BB: f32 = 5.0;
+pub const SAMPLE_TOLERANCE_BB: f32 = 0.5;
 
 const CHIPS_PER_BB: f32 = 100.0;
+/// Pot at the turn decision node (matches TUI / rjeans baseline).
+const TURN_ENTRY_POT_CHIPS: u32 = 616;
 
 #[derive(Debug, Clone)]
 pub struct RankedDecision {
@@ -74,12 +77,18 @@ pub struct BenchmarkReport {
     pub turn_boards_sampled: Vec<String>,
     pub matched_sample: Option<HeroDecisionSample>,
     pub decisions_ranked: Vec<RankedDecision>,
+    pub exploitability_max_mbb: Option<f32>,
     pub baseline: BaselineExpectation,
 }
 
-/// Load OOP/IP combo lists expanded via postflop-solver (see
-/// `benchmarks/kk_turn_expanded_combos.txt`).
-fn load_expanded_ranges() -> (HandRange, HandRange) {
+/// Load OOP/IP combo lists. Prefer PPT expansion; fall back to the
+/// postflop-solver expanded combo file when shorthand yields too few combos.
+fn load_benchmark_ranges() -> (HandRange, HandRange) {
+    let oop_ppt = HandRange::from_string(expand_ppt_range(OOP_RANGE));
+    let ip_ppt = HandRange::from_string(expand_ppt_range(IP_RANGE));
+    if oop_ppt.hands.len() > 100 && ip_ppt.hands.len() > 100 {
+        return (oop_ppt, ip_ppt);
+    }
     let raw = include_str!("../../../benchmarks/kk_turn_expanded_combos.txt");
     let mut lines = raw.lines().filter(|l| !l.is_empty());
     let oop_line = lines.next().expect("oop combos line");
@@ -90,10 +99,11 @@ fn load_expanded_ranges() -> (HandRange, HandRange) {
     )
 }
 
-/// Build `Options` for a turn-entry solve matching one sampled turn card.
+/// Build `Options` for a turn-entry solve on one sampled turn card.
+/// `starting_pot` matches the TUI decision-node geometry (6.16 BB).
 pub fn options_for_turn_card(turn_card: &str) -> Options {
     let board = format!("{}{}", FLOP, turn_card);
-    let (oop_range, ip_range) = load_expanded_ranges();
+    let (oop_range, ip_range) = load_benchmark_ranges();
     Options {
         n_players: 2,
         hand_ranges: vec![oop_range, ip_range],
@@ -102,7 +112,7 @@ pub fn options_for_turn_card(turn_card: &str) -> Options {
             STACK_BUCKET_BB * 100,
         ],
         board_mask: get_card_mask(&board),
-        starting_pot: 200, // 2 BB limped HU (matches rjeans HU_CX default)
+        starting_pot: TURN_ENTRY_POT_CHIPS,
         all_in_threshold: 1.5,
         max_raises: 3,
         action_abstraction: crate::actions::ActionAbstraction {
@@ -284,7 +294,8 @@ pub fn solve_turn_card(turn_card: &str) -> TurnSolveResult {
     let cfg = TrainConfig::default()
         .with_max_iter(MAX_ITER)
         .with_n_threads(1)
-        .with_cfr_plus(false);
+        .with_cfr_plus(false)
+        .with_pin_hero(hero, 0);
     trainer.train_with_config(&cfg);
     let elapsed_ms = t0.elapsed().as_secs_f64() * 1000.0;
     let samples = trainer.collect_hero_samples(&options, hero, 0, BettingRound::Turn);
@@ -293,6 +304,48 @@ pub fn solve_turn_card(turn_card: &str) -> TurnSolveResult {
         elapsed_ms,
         samples,
     }
+}
+
+/// Phase 10.7 quality gate checks on a benchmark report.
+pub fn assert_quality_gate(report: &BenchmarkReport) -> Result<(), String> {
+    let matched = report
+        .matched_sample
+        .as_ref()
+        .ok_or_else(|| "no matched turn sample".to_string())?;
+
+    let pot_err = (matched.pot_bb - QUERY_POT_BB).abs();
+    let call_err = (matched.call_cost_bb - QUERY_CALL_BB).abs();
+    if pot_err > SAMPLE_TOLERANCE_BB || call_err > SAMPLE_TOLERANCE_BB {
+        return Err(format!(
+            "geometry mismatch: pot_bb={:.3} (want {:.3}), call_cost_bb={:.3} (want {:.3})",
+            matched.pot_bb, QUERY_POT_BB, matched.call_cost_bb, QUERY_CALL_BB
+        ));
+    }
+
+    let uniform = 1.0 / 3.0;
+    let spread = matched
+        .action_probs
+        .iter()
+        .map(|p| (p - uniform).abs())
+        .fold(0.0_f32, f32::max);
+    if spread < 0.05 {
+        return Err(format!(
+            "strategy too uniform: action_probs={:?}",
+            matched.action_probs
+        ));
+    }
+
+    if report.solve_elapsed_ms > 500.0 {
+        return Err(format!(
+            "solve too slow: {:.1} ms (budget 500 ms)",
+            report.solve_elapsed_ms
+        ));
+    }
+
+    // Exploitability gate (P10.7 stretch) — skipped until BR scale is trustworthy
+    // on turn-entry trees; `exploitability_max_mbb` is optional on the report.
+
+    Ok(())
 }
 
 pub fn run_kk_turn_benchmark() -> BenchmarkReport {
@@ -329,6 +382,7 @@ pub fn run_kk_turn_benchmark() -> BenchmarkReport {
         turn_boards_sampled: boards_sampled,
         matched_sample: matched,
         decisions_ranked,
+        exploitability_max_mbb: None,
         baseline,
     }
 }
@@ -339,6 +393,10 @@ pub fn print_report(report: &BenchmarkReport) {
     println!("solve_elapsed_ms: {:.2}", report.solve_elapsed_ms);
     println!("total_samples: {}", report.total_samples);
     println!("turn_boards_sampled: {:?}", report.turn_boards_sampled);
+
+    if let Some(eps) = report.exploitability_max_mbb {
+        println!("exploitability_max_mbb: {:.2}", eps);
+    }
 
     if let Some(m) = &report.matched_sample {
         println!("matched_sample:");
@@ -420,6 +478,23 @@ mod tests {
         eprintln!("tree action nodes: {}", n_actions);
         assert!(options.hand_ranges[0].hands.len() > 100);
         assert!(options.hand_ranges[1].hands.len() > 100);
+        assert_eq!(options.starting_pot, TURN_ENTRY_POT_CHIPS);
         assert!(n_actions > 0 && n_actions < 10_000);
+    }
+
+    /// Phase 10.7: KK turn quality gate (non-uniform strategy, geometry, speed).
+    #[test]
+    #[ignore = "slow integration gate; run with cargo test --release -- --ignored"]
+    fn kk_turn_quality_gate() {
+        if std::env::var("OUT_DIR").is_err() {
+            let candidate = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("target/release/deps");
+            if candidate.join("offset_table.dat").exists() {
+                std::env::set_var("OUT_DIR", &candidate);
+            }
+        }
+        init_cards();
+        let report = run_kk_turn_benchmark();
+        assert_quality_gate(&report).unwrap_or_else(|e| panic!("quality gate: {}", e));
     }
 }
