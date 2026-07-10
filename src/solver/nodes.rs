@@ -32,10 +32,15 @@ impl TerminalType {
 
 #[derive(Debug)]
 pub struct TerminalNode {
-    pub value: u32, // size of pot
+    pub value: u32, // size of pot (post-rake)
     pub ttype: TerminalType,
     pub last_to_act: u8, // 0 or 1
-    pub round: BettingRound
+    pub round: BettingRound,
+    /// Per-player wager at terminal state, in chip order.
+    /// Used by the MCCFR walker to compute correct N-player
+    /// payoffs (winner gets `sum_{j != i} min(wager_i, wager_j)`;
+    /// losers lose their wager).
+    pub player_wagers: Vec<u32>,
 }
 
 #[derive(Debug)]

@@ -5,6 +5,24 @@
 use rust_poker::hand_range::{HandRange, get_card_mask};
 use crate::actions::ActionAbstraction;
 
+/// Scenario preset for the `solver` binary.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SolverPreset {
+    /// Turn entry (4 board cards), narrow ranges — safe default.
+    Turn,
+    /// Flop entry (3 board cards), full random ranges — may OOM.
+    Flop,
+}
+
+impl SolverPreset {
+    pub fn name(self) -> &'static str {
+        match self {
+            SolverPreset::Turn => "turn",
+            SolverPreset::Flop => "flop",
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Options {
     /// Number of players. Must match `stack_sizes.len()`.
@@ -12,6 +30,10 @@ pub struct Options {
     /// Hand range for each player. Loaded from `ranges/*.json` (Phase 8)
     /// or constructed in code. Length must equal `n_players`.
     pub hand_ranges: Vec<HandRange>,
+    /// Preflop range distribution per position (169-hand array).
+    /// Stub for Phase 8; not yet wired into training.
+    /// Use `hand_ranges` for the active training range.
+    pub preflop_ranges: Option<[HandRange; 3]>,
     /// Starting stack for each player. Length must equal `n_players`.
     pub stack_sizes: Vec<u32>,
     /// Public card board as a 52-bit mask (bit i = card i).
@@ -78,6 +100,7 @@ impl Options {
             postflop_pot_override: None,
             rake: None,
             max_action_sequences_per_street: 200,
+            preflop_ranges: None,
         }
     }
 }
@@ -106,13 +129,48 @@ pub fn default_flop() -> Options {
         postflop_pot_override: None,
         rake: None,
         max_action_sequences_per_street: 200,
+        preflop_ranges: None,
     }
 }
 
-/// Pre-P0.5 default scenario: 2p, 5 community cards (turn-river
-/// decision), 5BB stacks, 35-chip pot. Retained for the existing
-/// tests (which were written against this scenario before the
-/// flop-stack scenario was added).
+/// Narrow hand ranges for tests and smoke runs. Full `random` (1326
+/// combos) makes ISOMORPHIC abstraction + eager infoset allocation
+/// exhaust RAM; keep tests on this until sparse infosets land (P5.2).
+pub fn narrow_test_ranges(n_players: usize) -> Vec<HandRange> {
+    const RANGES: [&str; 2] = ["AA,KK,QQ,JJ", "TT,99,88,77"];
+    assert!(n_players <= RANGES.len());
+    RANGES[..n_players]
+        .iter()
+        .map(|s| HandRange::from_string(s.to_string()))
+        .collect()
+}
+
+/// Turn-entry scenario for tests: 4 community cards, turn+river
+/// betting only. Uses narrow ranges to stay within memory budget
+/// while ISOMORPHIC infosets are eagerly allocated.
+pub fn default_turn_solve() -> Options {
+    Options {
+        n_players: 2,
+        stack_sizes: vec![500, 500],
+        board_mask: get_card_mask("4d5dAs3c"),
+        starting_pot: 35,
+        all_in_threshold: 0.67,
+        max_raises: 2,
+        hand_ranges: narrow_test_ranges(2),
+        action_abstraction: ActionAbstraction {
+            bet_sizes: vec![vec![0.5, 1.0], vec![0.5, 1.0]],
+            raise_sizes: vec![vec![3.0], vec![3.0]],
+        },
+        depth_tier_bb: 5,
+        postflop_pot_override: None,
+        rake: None,
+        max_action_sequences_per_street: 200,
+        preflop_ranges: None,
+    }
+}
+
+/// Pre-P0.5 default scenario: 2p, 5 community cards (river-only
+/// decision), 5BB stacks, 35-chip pot.
 pub fn default_turn() -> Options {
     Options {
         n_players: 2,
@@ -121,10 +179,7 @@ pub fn default_turn() -> Options {
         starting_pot: 35,
         all_in_threshold: 0.67,
         max_raises: 2,
-        hand_ranges: vec![
-            HandRange::from_string("random".to_string()),
-            HandRange::from_string("random".to_string()),
-        ],
+        hand_ranges: narrow_test_ranges(2),
         action_abstraction: ActionAbstraction {
             bet_sizes: vec![vec![0.5, 1.0]],
             raise_sizes: vec![vec![3.0]],
@@ -133,5 +188,6 @@ pub fn default_turn() -> Options {
         postflop_pot_override: None,
         rake: None,
         max_action_sequences_per_street: 200,
+        preflop_ranges: None,
     }
 }

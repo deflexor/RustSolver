@@ -463,20 +463,18 @@ impl Kmeans {
 
             self.centers = new_centers;
             last_batch_idx = current_batch_idx;
-            // if min_change > threshold {
-            current_batch_idx = min!(n_data, current_batch_idx * 2);
-            // }
+
             let inertia = bounds.iter().map(|b| b.1).sum::<f32>() / current_batch_idx as f32;
-            if min_change > stop_threshold {
-                println!(
-                    "Done.  took {}ms, batch size: {}, p: {:.3}, inertia: {:4}",
-                    start.elapsed().as_millis(),
-                    current_batch_idx,
-                    min_change,
-                    inertia
-                );
-                break;
-            } else if t >= max_iter {
+
+            // Grow the batch only while NOT yet converged. Once
+            // min_change > stop_threshold the current batch is well-fit
+            // and we stop growing (the full dataset is eventually
+            // reached as n_data caps the growth below).
+            if min_change <= stop_threshold {
+                current_batch_idx = min!(n_data, current_batch_idx * 2);
+            }
+
+            if t >= max_iter {
                 println!(
                     "Max iter reached.  took {}ms, batch size: {}, p: {:.3}, inertia: {:4}",
                     start.elapsed().as_millis(),
@@ -485,13 +483,12 @@ impl Kmeans {
                     inertia
                 );
                 break;
-            } else {
-                print!(
-                    "iteration: {}, batch_size: {}, p: {:.3}, inertia: {:.4}\r",
-                    t, current_batch_idx, min_change, inertia
-                );
-                io::stdout().flush().unwrap();
             }
+            print!(
+                "iteration: {}, batch_size: {}, p: {:.3}, inertia: {:.4}\r",
+                t, current_batch_idx, min_change, inertia
+            );
+            io::stdout().flush().unwrap();
             t += 1;
         }
     }

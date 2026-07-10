@@ -57,17 +57,17 @@ The work is fully captured in `TASKS.md` and this plan.
 
 Remove things that block further work, no design changes.
 
-- [ ] Remove `extern crate cortex_m` from `src/solver/main.rs`
-- [ ] Remove unused nightly feature gates: `generators`, `generator_trait`,
+- [x] Remove `extern crate cortex_m` from `src/solver/main.rs`
+- [x] Remove unused nightly feature gates: `generators`, `generator_trait`,
       `box_into_pin`, `box_syntax`, `feature(test)`
-- [ ] Either implement `src/solver/actions.rs` or delete the file
-- [ ] Fix `kmeans::fit_growbatch` early-stop (remove the `break`; let
+- [x] Either implement `src/solver/actions.rs` or delete the file
+- [x] Fix `kmeans::fit_growbatch` early-stop (remove the `break`; let
       `min_change > stop_threshold` actually run)
-- [ ] Strip dead/commented-out code: `gen_ochs`, `gen_emd(turn, ...)`,
+- [x] Strip dead/commented-out code: `gen_ochs`, `gen_emd(turn, ...)`,
       `gen_emd(river, ...)` calls in `gen_abstraction/main.rs`; the
       non-sampling `cfr()` path in `cfr.rs` (or refactor into a clean
       `FullCFR` module for Phase 6 safe-search)
-- [ ] Add a smoke test: `train()` for 10k iters asserts BR values are
+- [x] Add a smoke test: `train()` for 10k iters asserts BR values are
       finite and the regret table mutates
 - [x] Verify `rust_poker 0.1.5` still builds; if not, evaluate replacement
       (`poker_eval_rs`, `poker`).

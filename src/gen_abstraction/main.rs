@@ -32,8 +32,6 @@ use rust_poker::equity_calculator::calc_equity;
 use rust_poker::hand_indexer_s;
 use rust_poker::hand_range::{char_to_rank, HandRange, HoleCards};
 
-// use kmeans::Kmeans;
-
 use ehs::EHS;
 
 const N_THREADS: usize = 16;
@@ -98,9 +96,7 @@ fn generate_histograms(samples: usize, round: usize, bins: usize) -> Vec<Histogr
 
     crossbeam::scope(|scope| {
         for (i, slice) in dataset.chunks_mut(size_per_thread).enumerate() {
-            // let ehs_table = Arc::clone(&ehs_table);
             let ehs_table = EHS::new();
-            // let mut rng = SmallRng::from_entropy();
             let mut rng = SmallRng::from_rng(&mut thread_rng).unwrap();
             let mut cards: Vec<u8> = vec![0; 7];
             scope.spawn(move |_| {
@@ -166,23 +162,10 @@ fn generate_opponent_clusters(n_opp_clusters: usize) -> Vec<String> {
     let mut cards: Vec<u8> = vec![0; 2];
     let mut opp_ranges: Vec<(String, f32)> = vec![("".to_string(), 0f32); n_opp_clusters];
 
-    // let mut estimator =
-    // kmeans::Kmeans::init_pp(n_opp_clusters, &mut thread_rng, &emd::emd_1d, &opp_features);
-
-    // let mut estimator = kmeans::Kmeans::init_random(
-    //     1,
-    //     n_opp_clusters,
-    //     &mut thread_rng,
-    //     &emd::emd_1d,
-    //     &opp_features,
-    // );
     let mut estimator =
         kmeans::Kmeans::init_pp(n_opp_clusters, &mut thread_rng, &emd::emd_1d, &opp_features);
-    // println!("Running Kmeans");
 
-    // estimator.growbatch_rho(&mut thread_rng, &emd::emd_1d, 10, &opp_features);
     estimator.fit_regular(&opp_features, &emd::emd_1d);
-    // estimator.fit_growbatch(&mut thread_rng, &emd::emd_1d, 50, &opp_features);
 
     let mut opp_clusters = vec![0usize; opp_features.len()];
     let inertia = estimator.predict(&opp_features, &mut opp_clusters, &emd::emd_1d);

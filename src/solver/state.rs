@@ -116,20 +116,22 @@ impl GameState {
             || self.is_uncontested()
     }
 
-    /// True if the current betting street is closed (all active players
-    /// have either matched the highest wager or folded, and at least one
-    /// has acted since the street opened).
+    /// True if the current betting street is closed. The street closes
+    /// when every active player has matched the highest wager AND the
+    /// player whose turn it is has already acted this street (meaning
+    /// action has wrapped around from a bet/raise, or everyone has
+    /// checked in sequence).
     pub fn street_closed(&self) -> bool {
         if self.bets_settled {
             return true;
         }
         let target = self.highest_wager();
-        // Street is closed when every active player has either folded or
-        // matched the target wager.
-        self.players
+        let all_matched = self
+            .players
             .iter()
             .filter(|p| !p.has_folded)
-            .all(|p| p.wager == target)
+            .all(|p| p.wager == target);
+        all_matched && self.players[usize::from(self.current)].has_acted_this_street
     }
 
     /// Advance to the next street: reset wagers, reset has_acted, and
@@ -275,7 +277,7 @@ impl From<&Options> for GameState {
             round,
             current: 0,
             bets_settled: false,
-            pot: options.starting_pot,
+            pot: options.postflop_pot_override.unwrap_or(options.starting_pot),
             raise_count: 0,
             max_raises: options.max_raises,
             all_in_threshold: options.all_in_threshold,
@@ -304,6 +306,7 @@ mod tests {
             postflop_pot_override: None,
             rake: None,
             max_action_sequences_per_street: 200,
+            preflop_ranges: None,
         };
         GameState::from(&options)
     }
@@ -325,6 +328,7 @@ mod tests {
             postflop_pot_override: None,
             rake: None,
             max_action_sequences_per_street: 200,
+            preflop_ranges: None,
         };
         GameState::from(&options)
     }
@@ -359,6 +363,7 @@ mod tests {
         // 2p, p0 stack=5, p1 already wagered 20.
         let mut s = make_2p([5, 100]);
         s.players[1].wager = 20;
+        s.players[1].has_acted_this_street = true;
         // p0's turn: must call to 20 but only has 5 chips.
         let after = s.apply_action(&Action::Call);
         assert_eq!(after.players[0].stack, 0);
@@ -387,10 +392,7 @@ mod tests {
         // Start: p0 has bet (wager=10), p1 to call.
         let mut s = make_2p([100, 100]);
         s.players[0].wager = 10;
-        // current is 0, but in our test we want p1 to act. We can
-        // simulate by setting current=1 manually — or check that
-        // "p0 calls p0's own bet" closes the street, which it should
-        // because all wagers match.
+        s.players[0].has_acted_this_street = true; // p0 bet this street
         s.current = 1;
         let after = s.apply_action(&Action::Call);
         assert!(after.bets_settled, "street should be closed after call match");
@@ -405,5 +407,88 @@ mod tests {
         assert_eq!(s2.round, BettingRound::Turn);
         let s3 = s2.to_next_street();
         assert_eq!(s3.round, BettingRound::River);
+    }
+
+    // ---- P1.7: 2p regression tests ----
+    // Each test exercises `apply_action` through a specific hand
+    // sequence and asserts exact pot, wager, and stack values.
+
+    #[test]
+    fn regr_check_check() {
+        // Both check. Pot unchanged.
+        let s = make_2p([100, 100]);
+        assert_eq!(s.pot, 6);
+        let s1 = s.apply_action(&Action::Check);
+        assert_eq!(s1.current, 1);
+        assert!(!s1.bets_settled);
+        let s2 = s1.apply_action(&Action::Check);
+        assert!(s2.bets_settled);
+        assert_eq!(s2.pot, 6);
+        assert_eq!(s2.players[0].wager, 0);
+        assert_eq!(s2.players[1].wager, 0);
+    }
+
+    #[test]
+    fn regr_bet_call() {
+        // p0 bets half-pot (3 chips from pot 6), p1 calls.
+        let s = make_2p([100, 100]);
+        let s1 = s.apply_action(&Action::Bet(0.5));
+        // pot 6, bet 0.5 => 3 chips wagered
+        assert_eq!(s1.players[0].wager, 3);
+        assert_eq!(s1.players[0].stack, 97);
+        assert_eq!(s1.pot, 9);
+        assert_eq!(s1.current, 1);
+        let s2 = s1.apply_action(&Action::Call);
+        assert!(s2.bets_settled);
+        assert_eq!(s2.players[1].wager, 3);
+        assert_eq!(s2.players[1].stack, 97);
+        assert_eq!(s2.pot, 12);
+    }
+
+    #[test]
+    fn regr_bet_raise_call() {
+        // p0 bets 3, p1 raises to 9 (3x current wager), p0 calls.
+        let s = make_2p([100, 100]);
+        let s1 = s.apply_action(&Action::Bet(0.5));
+        assert_eq!(s1.pot, 9);
+        // p1 raises: raise_size * opp_wager = 3.0 * 3 = 9
+        let s2 = s1.apply_action(&Action::Raise(3.0));
+        assert_eq!(s2.players[1].wager, 9);
+        assert_eq!(s2.players[1].stack, 91);
+        assert_eq!(s2.pot, 18);
+        assert_eq!(s2.current, 0); // back to p0
+        let s3 = s2.apply_action(&Action::Call);
+        assert!(s3.bets_settled);
+        assert_eq!(s3.players[0].wager, 9);
+        assert_eq!(s3.players[0].stack, 91);
+        assert_eq!(s3.pot, 24);
+    }
+
+    #[test]
+    fn regr_bet_fold_uncontested() {
+        // p0 bets, p1 folds -> uncontested, p0 wins the pot.
+        let s = make_2p([100, 100]);
+        let s1 = s.apply_action(&Action::Bet(0.5));
+        assert_eq!(s1.pot, 9);
+        let s2 = s1.apply_action(&Action::Fold);
+        assert!(s2.is_uncontested());
+        assert_eq!(s2.players[1].has_folded, true);
+        // p0's wager stays, p1 folded.
+        assert_eq!(s2.players[0].wager, 3);
+        assert_eq!(s2.pot, 9);
+    }
+
+    #[test]
+    fn regr_stack_cap_on_call() {
+        // p0 has only 5 chips, p1 has bet 20.
+        // p0 calls, should be capped at their stack of 5.
+        let mut s = make_2p([5, 100]);
+        s.players[1].wager = 20;
+        s.players[1].has_acted_this_street = true;
+        s.pot = 26; // initial 6 + 20 from p1
+        let after = s.apply_action(&Action::Call);
+        assert_eq!(after.players[0].stack, 0, "p0 should be all-in");
+        assert_eq!(after.players[0].wager, 5, "p0 caps at remaining stack");
+        assert_eq!(after.pot, 31); // 26 + 5
     }
 }

@@ -22,8 +22,8 @@ this can be re-imported into a tracker later).
 |----|-------|-----------|------|----------|--------|
 | P0.1 | Remove `extern crate cortex_m` and unused nightly features from `src/solver/main.rs`; verify `cargo build --release` | 60 | - | 0 | done |
 | P0.2 | Resolve `src/solver/actions.rs`: move types from `action_abstraction.rs` into it (or delete the file) | 60 | - | 2 | done |
-| P0.3 | Fix `kmeans::fit_growbatch` early-stop: remove trailing `break;`; add a test that exercises 5+ iterations on synthetic data | 120 | - | 0 | pending |
-| P0.4 | Strip dead commented-out code: `gen_ochs`, `gen_emd(turn/river, ...)` in `gen_abstraction/main.rs`; non-sampling `cfr()` path in `cfr.rs` (or refactor into a clean `FullCFR` module for Phase 6) | 60 | - | 2 | pending |
+| P0.3 | Fix `kmeans::fit_growbatch` early-stop: remove trailing `break;`; add a test that exercises 5+ iterations on synthetic data | 120 | - | 0 | done |
+| P0.4 | Strip dead commented-out code: `gen_ochs`, `gen_emd(turn/river, ...)` in `gen_abstraction/main.rs`; non-sampling `cfr()` path in `cfr.rs` (or refactor into a clean `FullCFR` module for Phase 6) | 60 | - | 2 | done |
 | P0.5 | Smoke test: `train()` 10k iters asserts BR finite and `Infoset.regrets` mutates; verify `rust_poker 0.1.5` builds on current stable | 180 | P0.1, P0.3 | 0 | done |
 | P0.5a | `scripts/setup.sh` for cmake + libclang-dev + build-essential (no longer required; build is now C-free) | 30 | - | 0 | done (obsolete) |
 | P0.5b | **Superseded** by the C-removal work. The C `hand_indexer` library has been **stubbed out** in the vendored rust_poker; the solver builds in ~4s without cmake/libclang. See `vendor/rust_poker/README.md`. | 2400 | - | 3 | declined |

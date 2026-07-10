@@ -13,20 +13,38 @@ mod infoset;
 mod cfr;
 
 use cfr::{MCCFRTrainer, TrainConfig};
+use crate::options::{self as solver_options, SolverPreset};
 use rust_poker::hand_evaluator::init_cards;
 use std::time::Instant;
 
-/// Parse a `--key value` pair from CLI args. Returns `default` if the
-/// flag is absent or malformed. Supports `--max-iter N`,
-/// `--target-mbb M`, `--convergence-interval I`, `--convergence-path P`,
-/// `--cfr-plus` (boolean flag, no value), and `--help`.
-fn parse_cli() -> TrainConfig {
+/// Parse CLI flags. Default preset is turn-entry (`default_turn_solve`).
+fn parse_cli() -> (TrainConfig, SolverPreset) {
     let mut cfg = TrainConfig::default();
+    let mut preset = SolverPreset::Turn;
     let args: Vec<String> = std::env::args().collect();
     let mut i = 1;
     while i < args.len() {
         let arg = &args[i];
         match arg.as_str() {
+            "--preset" => {
+                if let Some(v) = args.get(i + 1) {
+                    preset = match v.as_str() {
+                        "turn" => SolverPreset::Turn,
+                        "flop" => SolverPreset::Flop,
+                        other => {
+                            eprintln!(
+                                "--preset must be `turn` or `flop` (got {:?})",
+                                other
+                            );
+                            std::process::exit(2);
+                        }
+                    };
+                    i += 2;
+                    continue;
+                }
+                eprintln!("--preset requires `turn` or `flop`");
+                std::process::exit(2);
+            }
             "--max-iter" => {
                 if let Some(v) = args.get(i + 1) {
                     if let Ok(n) = v.parse::<usize>() {
@@ -79,12 +97,16 @@ fn parse_cli() -> TrainConfig {
             }
             "--help" | "-h" => {
                 eprintln!(
-                    "rust_solver [--max-iter N] [--target-mbb M] \\\n\
+                    "rust_solver [--preset turn|flop] [--max-iter N] [--target-mbb M] \\\n\
                      \x20            [--convergence-interval I] [--convergence-path P] \\\n\
                      \x20            [--cfr-plus | --no-cfr-plus]\n\
                      \n\
-                     Defaults: --max-iter 10000000 --convergence-interval 100000 \\\n\
-                     \x20          --convergence-path convergence.jsonl --cfr-plus"
+                     Defaults: --preset turn --max-iter 10000000 \\\n\
+                     \x20          --convergence-interval 100000 \\\n\
+                     \x20          --convergence-path convergence.jsonl --cfr-plus\n\
+                     \n\
+                     Flop preset uses full random ranges and may OOM until sparse\n\
+                     infoset allocation (P5.2) lands. Turn preset is the safe default."
                 );
                 std::process::exit(0);
             }
@@ -94,7 +116,7 @@ fn parse_cli() -> TrainConfig {
             }
         }
     }
-    cfg
+    (cfg, preset)
 }
 
 fn main() {
@@ -114,11 +136,25 @@ fn main() {
     // main thread before spawning worker threads.
     init_cards();
 
-    let options = options::default_flop();
+    let (cfg, preset) = parse_cli();
+    let options = match preset {
+        SolverPreset::Turn => solver_options::default_turn_solve(),
+        SolverPreset::Flop => {
+            eprintln!(
+                "warning: --preset flop uses full random ranges and may OOM;\n\
+                 \x20        prefer --preset turn until sparse infosets (P5.2) land"
+            );
+            solver_options::default_flop()
+        }
+    };
     let mut trainer = MCCFRTrainer::init(options);
     let start = Instant::now();
-    let cfg = parse_cli();
     trainer.train_with_config(&cfg);
-    let elapsed = start.elapsed().subsec_nanos();
-    println!("{}", elapsed);
+    let elapsed = start.elapsed();
+    eprintln!(
+        "done: {} iters in {:.2}s (preset={})",
+        cfg.max_iter,
+        elapsed.as_secs_f64(),
+        preset.name()
+    );
 }

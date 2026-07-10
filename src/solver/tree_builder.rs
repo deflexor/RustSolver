@@ -114,11 +114,21 @@ impl<'a> TreeBuilder<'a>{
         }
     }
     fn build_terminal(&mut self, parent: NodeId, state: GameState) -> NodeId {
+        let pot_before_rake = state.pot;
+        // Subtract rake from the pot value.
+        let value = if let Some((frac, cap)) = self.options.rake {
+            let rake = ((pot_before_rake as f64 * frac) as u32).min(cap);
+            pot_before_rake.saturating_sub(rake)
+        } else {
+            pot_before_rake
+        };
+        let player_wagers: Vec<u32> = state.players.iter().map(|p| p.wager).collect();
         let mut terminal = TerminalNode {
-            value: state.pot,
+            value,
             ttype: TerminalType::SHOWDOWN,
             last_to_act: state.current,
             round: state.round,
+            player_wagers,
         };
         if state.is_allin() && state.round != BettingRound::River {
             terminal.ttype = TerminalType::ALLIN;
