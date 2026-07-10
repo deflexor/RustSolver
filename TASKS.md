@@ -8,19 +8,21 @@ each phase.
 `rust_solver_py`, replacing rjeans `solver_ext` in the TUI under `RUST_SOLVER=1`.
 **Phase 12 is the critical path.** Phases 1–9 remain deferred (3p, EMD, tiers).
 
-### Next session — start here
+### Next session — start here (P12.8 production sign-off)
 
-1. **P12.1** Flop-entry solve (check-check flop → turn → hero node) in
-   `python_api.rs` + `kk_turn_bench`
-2. **P12.2** Tree param parity with `solver_ext` (bet sizes, raises, flop pot)
-3. **P12.3** KK A/B vs rjeans — target check prob ≈0.49 ±0.10
-4. See Phase 12 table below for full production roadmap
+1. **P12.8** Close G1–G5 gaps — see `PLAN.md` Phase 12 gate table
+2. **Suite A/B** — rjeans baselines for all 5 spots; `run_hu_turn_suite.py` diff
+3. **G4** — strict &lt;50 mbb on wide ranges (more iters / exact BR / policy)
+4. **rjeans** — commit + validate `RUST_SOLVER=1` staging (`solver_decide.py`)
 
 **Quick commands:**
 
 ```bash
+OUT_DIR=target/release/deps bash scripts/run_quality_gates.sh
 OUT_DIR=target/release/deps cargo run --release --bin kk_turn_bench
-OUT_DIR=target/release/deps cargo test --release --bin kk_turn_bench kk_turn_quality_gate -- --ignored
+OUT_DIR=target/release/deps cargo run --release --bin hu_turn_suite_bench
+python3 benchmarks/run_hu_turn_suite.py
+python3 benchmarks/run_kk_turn_compare.py   # needs ~/rjeans venv
 cd rust_solver_py && maturin develop --release   # from activated .venv
 ```
 
@@ -181,13 +183,13 @@ vs leaf-eval) is the debug target.
 | ID | Title | Est (min) | Deps | Priority | Status |
 |----|-------|-----------|------|----------|--------|
 | P10.1 | Real hand eval in BR/EV terminal walker; AA vs 22, AKs vs 72o unit tests | 1440 | P4.2 | 0 | done |
-| P10.2 | Per-bucket reach normalization; trustworthy `exploitability_max` plumbing | 240 | P10.1 | 0 | done (scale: see P12.4) |
+| P10.2 | Per-bucket reach normalization; trustworthy `exploitability_max` plumbing | 240 | P10.1 | 0 | done |
 | P10.3 | Hero-exact strategy: `pin_hero`, `query_strategy()` at extract | 480 | P10.1 | 0 | done |
 | P10.4 | Convergence stop: `time_budget_ms` + `target_mbb` on `TrainConfig` | 180 | P10.2 | 0 | done |
 | P10.5 | Flop-entry solve + turn-card sampling; match TUI action paths | 360 | P0.6 | 0 | partial (infra; prod uses turn-entry @ 2 BB) |
 | P10.6 | PPT hyphen range import; replace combo-file fallback when sparse | 240 | P0.6b | 1 | partial |
 | P10.7 | KK quality gate v1: non-uniform + geometry + &lt;500 ms | 120 | P10.3 | 0 | done |
-| P10.8 | KK quality gate v2: parity ±0.10 + exploitability &lt;50 mbb/h | 120 | P12.4 | 0 | partial (parity passes) |
+| P10.8 | KK quality gate v2: parity ±0.10 + exploitability &lt;50 mbb/h | 120 | P12.4 | 0 | partial (parity passes; G4 wide-range open) |
 
 ## Phase 11 - Python library `rust_solver_py`
 
@@ -197,8 +199,8 @@ vs leaf-eval) is the debug target.
 | P11.2 | `solve_turn_decision(...)` one-shot API | 360 | P11.1, P10.4 | 0 | done |
 | P11.3 | `TrainingSample` + `SolverSession.solve_flop_tree` compat | 480 | P11.2 | 1 | done |
 | P11.4 | Session-scoped config cache (ranges, stack, tree params) | 120 | P11.2 | 2 | open |
-| P11.5 | uv integration test: import, KK spot, assert gates | 120 | P11.2 | 0 | partial (`scripts/run_quality_gates.sh`) |
-| P11.6 | rjeans TUI `RUST_SOLVER=1` swap-in (staging only until P12) | 240 | P11.3, P12.6 | 2 | open |
+| P11.5 | uv integration test: import, KK spot, assert gates | 120 | P11.2 | 0 | done (`run_quality_gates.sh` + `.gitlab-ci.yml`) |
+| P11.6 | rjeans TUI `RUST_SOLVER=1` swap-in (staging) | 240 | P11.3, P12.6 | 2 | done (rjeans repo; validate + commit) |
 
 ## Phase 12 - Production readiness: HU turn solving (**priority 0**)
 
@@ -213,7 +215,7 @@ Production = G1–G5 in `PLAN.md` Phase 12 (parity, geometry, speed, exploitabil
 | P12.5 | Multi-spot HU turn benchmark suite (≥5 TUI spots) + JSON diff | 720 | P12.3 | 0 | done |
 | P12.6 | CI gates: parity (G1), exploitability (G4) on suite | 360 | P12.5, P12.4 | 0 | done |
 | P12.7 | `RUST_SOLVER=1` in rjeans TUI (staging); document rollback | 240 | P12.6, P11.3 | 1 | done |
-| P12.8 | Production sign-off: README + PLAN gate closed for HU turn | 120 | P12.6, P12.7 | 0 |
+| P12.8 | Production sign-off: README + PLAN gate closed for HU turn | 120 | P12.6, P12.7 | 0 | open |
 
 ---
 
@@ -287,16 +289,24 @@ Phase 8 (independent; feeds runtime via Options::preflop_ranges)
 | **Total** | **82** | **~26220 min (~43.7 work-weeks at 10h/week)** |
 
 Note: **Phase 12 is priority 0** for production HU turn solving. Phases 1–9
-deferred. P10.7 v1 done; v2 (exploitability) moves to P10.8 / P12.4.
+deferred. P12.4–P12.7 done (commit `55db788`); **P12.8** is the remaining gate.
 
 ## Performance budget (2026-Q3 revision)
 
-**Production target (Phase 12):** HU turn spots in **&lt;500 ms** with
+**Production target (Phase 12 / P12.8):** HU turn spots in **&lt;500 ms** with
 **rjeans parity** (top action match ≥80% on suite; key probs ±0.10) and
 **exploitability_max &lt;50 mbb/h**.
 
-**Current (Jul 2026):** ~110 ms KK spot, check **0.614** vs solver_ext **0.602** (pot=2 BB,
-call=0); exploitability scale still broken.
+**Current staging (Jul 10 2026):**
+
+| Metric | Status |
+|--------|--------|
+| KK parity | check **0.614** vs solver_ext **0.602** (pot=2 BB, call=0) |
+| Speed | ~35 ms training per suite spot |
+| Exploitability scale | Fixed (was ~76k mbb/h); sampled BR ~300–440 on wide ranges |
+| G4 strict &lt;50 | Passes on small-tree unit test only |
+| CI | `bash scripts/run_quality_gates.sh` green |
+| TUI | `RUST_SOLVER=1` staging in rjeans (separate repo) |
 
 **15-25BB tier target (unchanged):** Phase 9 speed work after Phase 12
 production gate for HU turn.

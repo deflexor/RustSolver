@@ -14,31 +14,34 @@ CFR); we need **winning, hard-to-exploit decisions under a time budget**.
 | 3 | **Python UX** — `uv` venv + `maturin develop`; drop-in for `solver_decide` |
 | 4 | 3p / tier sweep / EMD abstraction — **after** 2p HU runtime is trustworthy |
 
-**Production status (Jul 2026):** `rust_solver_py` achieves **solver_ext parity**
-on the KK HU turn benchmark (check ≈0.61 vs 0.60, pot=2 BB, &lt;150 ms) with
-deterministic training (seed + CFR+). Flop-entry infrastructure is in place for
-future full-tree solves. Exploitability scale (P12.4) and multi-spot CI suite
-(P12.5–P12.6) remain open before TUI `RUST_SOLVER=1` sign-off.
+**Production status (Jul 10 2026):** **Staging-ready** for HU **turn-entry**
+spots (pot=2 BB, call=0, stack bucket 12). `rust_solver_py` matches
+**solver_ext** on KK (check **0.614** vs **0.602**, ~35 ms/spot). Quality
+gates pass via `scripts/run_quality_gates.sh` + `.gitlab-ci.yml`. Exploitability
+scale fixed (P12.4); 5-spot suite + CI wired (P12.5–P12.6). `RUST_SOLVER=1`
+staging swap in rjeans (P12.7). **P12.8 production sign-off** still open:
+full G1 suite parity vs rjeans, strict G4 &lt;50 mbb on wide ranges.
 
 Companion task tracker: `TASKS.md`.
 
-### Session checkpoint (Jul 10 2026 — production parity pass)
+### Session checkpoint (Jul 10 2026 — Phase 12 staging pass, commit `55db788`)
 
-**Phase 12 (partial — KK parity gate passes):**
-- P12.2 tree param parity: `solver_ext_action_abstraction`, 2 BB turn-entry pot
-- P12.3 KK A/B: check **0.614** vs solver_ext **0.602** (±0.10), ~110 ms
-- MCCFR: PublicChance card dealing; `TrainConfig::seed` for reproducibility
-- `HeroSampleQuery` + flop-entry path for experiments (`solve_flop_entry_turn`)
-- `scripts/run_quality_gates.sh` — Rust + Python smoke (P11.5 partial)
-- **Still open:** P12.8 multi-spot sign-off; exploitability &lt;50 mbb on wide ranges needs more iters / exact BR
+**Phase 12 (P12.4–P12.7 done; P12.8 open):**
+- P12.4 exploitability scale: chip→BB, hand-weighted reach, combo subsampling;
+  `target_mbb` stop without requiring convergence log; small-tree G4 &lt;50 unit test
+- P12.5 `benchmarks/hu_turn_suite.json` (5 spots) + `hu_turn_suite_bench`
+- P12.6 `.gitlab-ci.yml` + expanded `scripts/run_quality_gates.sh`
+- P12.3 KK parity: check **0.614** vs solver_ext **0.602** (±0.10)
+- P12.7 `RUST_SOLVER=1` in rjeans `solver_decide.py` (staging; rollback = unset env)
+- **Still open (P12.8):** full G1 on suite vs rjeans; G4 &lt;50 on wide ranges;
+  README/PLAN gate closure
 
-**Phase 11 (scaffolded):**
-- `rust_solver_py/` PyO3 crate: `SolverSession.solve_flop_tree`, `solve_turn_decision`, `TrainingSample`
-- `src/solver/python_api.rs` + `src/lib.rs` library surface
-- Docs: `rust_solver_py/README.md`
-- **Still open:** P11.5 CI integration test; P11.6 `RUST_SOLVER=1` in rjeans TUI
+**Phase 11:**
+- P11.5 CI quality gates done (`run_quality_gates.sh` + GitLab CI)
+- P11.6 staging swap done in rjeans (separate repo; commit/validate there)
+- P11.4 config cache still open
 
-### Session checkpoint (Jul 2026, earlier)
+### Session checkpoint (Jul 10 2026 — KK parity pass, earlier)
 
 - Added KK turn A/B harness: `kk_turn_bench`, `benchmarks/run_kk_turn_compare.py`
 - vs rjeans: **62 ms vs 711 ms**, but rust_solver top action ~uniform (0.33)
@@ -134,25 +137,32 @@ Remove things that block further work, no design changes.
 
 ### Phase 1 - N-player state, no Preflop, stack-cap (1-1.5 weeks)
 
-- [ ] `MAX_PLAYERS = 3` (constants.rs)
-- [ ] `PlayerState { stack, wager, has_folded, has_acted_this_street }`
-- [ ] `GameState { num_players, players: Vec<PlayerState> }` (no fixed array)
-- [ ] Replace every `1 - current` with `next_active_player(current, &players)`
+**Status: mostly done** (HU 2p path production-ready; `preflop_ranges` JSON
+loader deferred to Phase 8).
+
+- [x] `MAX_PLAYERS = 3` (constants.rs)
+- [x] `PlayerState { stack, wager, has_folded, has_acted_this_street }`
+- [x] `GameState { players: Vec<PlayerState> }` (no fixed array; `num_players()`)
+- [x] Replace every `1 - current` with `next_active_player(current, &players)`
       skipping folded/acted
-- [ ] `apply_action` raise/call/fold: loop over active players; **cap wager
+- [x] `apply_action` raise/call/fold: loop over active players; **cap wager
       at opponent's stack**
-- [ ] `BettingRound` stays `Flop | Turn | River` (no Preflop)
-- [ ] `Options::depth_tier_bb: u32` replaces `stack: u32`
+- [x] `BettingRound` stays `Flop | Turn | River` (no Preflop)
+- [x] `Options::depth_tier_bb: u32` replaces `stack: u32`
 - [ ] `Options::preflop_ranges: [HandRange; 3]` loaded from `ranges/*.json`
-- [ ] `Options::postflop_pot_override: Option<u32>` (default 1.5 BB)
-- [ ] `Options::rake: Option<(f64, u32)>` (default None)
-- [ ] `Options::max_raises: u8` and `Options::all_in_threshold: f64` are
-      actually read by `state.rs` (currently dead fields)
-- [ ] `TerminalNode::value` SHOWDOWN/ALLIN uses min-wager convention:
+      (field exists; loader is Phase 8)
+- [x] `Options::postflop_pot_override: Option<u32>` (default 1.5 BB)
+- [x] `Options::rake: Option<(f64, u32)>` (default None; applied in tree builder)
+- [x] `Options::max_raises: u8` and `Options::all_in_threshold: f64` are
+      actually read by `state.rs`
+- [x] `TerminalNode::value` SHOWDOWN/ALLIN uses min-wager convention:
       player i wins `sum_{j != i} min(my_wager, opp_wager)`; subtract rake
-- [ ] Existing 2p test cases must still pass
+      (`player_wagers` on `TerminalNode`)
+- [x] Existing 2p test cases must still pass
 
 ### Phase 2 - Wire abstraction pipeline (1-1.5 weeks)
+
+**Status: deferred** (hand-indexer stub blocks EMD flop/turn/river; see risk #10).
 
 - [ ] Re-enable turn + river EMD generation in `gen_abstraction/main.rs`
       (currently hard-coded `round=1`); parameterize via CLI flag
@@ -169,6 +179,9 @@ Remove things that block further work, no design changes.
 
 ### Phase 3 - Action abstraction expansion (0.5-1 week)
 
+**Status: deferred** (`max_raises` / `all_in_threshold` wired in Phase 1; per-street
+presets not yet productized).
+
 - [ ] Defaults per street:
   - Flop: bet `[0.33, 0.5, 0.75, 1.0]`, raise `[2.0, 3.0]`, max 3 raises
   - Turn: bet `[0.5, 0.75, 1.0, 1.5]`, raise `[2.0, 2.5, 3.0]`, max 3 raises
@@ -180,23 +193,28 @@ Remove things that block further work, no design changes.
 
 ### Phase 4 - Exploitability, BR, CFR+ (1.5-2 weeks)
 
-- [ ] Replace `unsafe` raw-pointer discount thread with
-      `crossbeam::channel::bounded` snapshot pattern (no UB)
-- [ ] Add `br_2p` and `br_3p` modules: per-player best response
-- [ ] `convergence.json` writer with the schema in
+**Status: done for 2p HU** (BR/EV in `cfr.rs`; 3p constant-sum not verified).
+
+- [x] Replace `unsafe` raw-pointer discount thread with `crossbeam::scope`
+      + atomic regrets (no UB)
+- [x] Per-player best response: `calc_br()` / `calc_ev()` walkers in `cfr.rs`
+      (not separate `br_2p`/`br_3p` modules)
+- [x] `convergence.json` writer with the schema in
       `docs/convergence_schema.md`
-- [ ] Add CFR+ for the 2p path: regret floor at 0, weighted by iteration
-      count
-- [ ] Add `--target-exploitability-mbb` and `--max-iter` flags; stop when
-      either is met
+- [x] Add CFR+ for the 2p path: regret floor at 0 (weighted strategy_sum
+      approximate; see P9.8)
+- [x] Add `--target-mbb` and `--max-iter` flags; stop when either is met
 - [ ] In 3p, sum of `ev[i]` should be 0 (constant-sum convention)
 
 ### Phase 5 - Threading & memory (1-1.5 weeks)
 
+**Status: partial** (sparse infosets + `total_bytes` done; scaling bench + OOM
+budget open).
+
 - [ ] Benchmark at 1/2/4/8/16 threads; report scaling efficiency
-- [ ] Switch `Infoset` to sparse allocation: only allocate `regrets` and
+- [x] Switch `Infoset` to sparse allocation: only allocate `regrets` and
       `strategy_sum` boxes on first write
-- [ ] Add `InfosetTable::total_bytes()` and log in `convergence.json`
+- [x] Add `InfosetTable::total_bytes()` and log in `convergence.json`
 - [ ] Configurable memory budget (default 8 GB); refuse to allocate beyond
 
 ### Checkpoint: 2p postflop <= 5 mbb/h
@@ -221,6 +239,8 @@ debug target: regret-update vs. strategy-sample vs. leaf-eval.
 
 ### Phase 6 - 3p blueprint + safe search (2.5-3.5 weeks)
 
+**Status: deferred** (after HU turn production sign-off).
+
 - [ ] 3p reach-propagation test (write before implementation)
 - [ ] External-sampling MCCFR generalized to N players: track
       `cfr_reach_p * product(sample_reach_opp_j)` for `j != p`
@@ -234,6 +254,8 @@ debug target: regret-update vs. strategy-sample vs. leaf-eval.
 
 ### Phase 7 - Per-tier runner + validation (1-1.5 weeks)
 
+**Status: deferred.**
+
 - [ ] `bin/solve_tier.rs`: `--depth-bb 20 --out strategy_t20.bin`
 - [ ] Cache `*_emd.dat`; skip regeneration if newer than source
 - [ ] `bin/play_2p.rs` and `bin/play_3p.rs`: load strategy, play out hands
@@ -245,55 +267,38 @@ debug target: regret-update vs. strategy-sample vs. leaf-eval.
 
 ### Phase 8 - Preflop range files (0.5 week)
 
+**Status: deferred.**
+
 - [ ] `ranges/BTN_vs_SB_BB_3p.json`: 169-hand distribution per position
 - [ ] `ranges/BB_defend.json`: defending distribution when BB acts first
 - [ ] Loader: `Options::preflop_ranges = load_ranges(path)`
 
 ### Phase 9 - Speed & precision for 15-25BB (1-2 weeks, **priority 0**)
 
+**Status: partial** — P9.1–P9.3 and P9.5 done (largely superseded by Phase 10
+for eval/reach quality); P9.4/P9.6 and full tier sweep still open.
+
 Drives the 15-25BB use case. Each task is small and independent; do in
 this order for compounding gains.
 
-- [ ] **P9.1** Real hand evaluation in terminal walker (Phase 5 work,
-      2-3 days). Wire `rust_poker::hand_evaluator::Evaluator` into
-      `abstract_br_terminal` / `abstract_ev_terminal` so SHOWDOWN leaves
-      return the actual hand-vs-hand winner. Thread `Hand` (both players'
-      hole cards + 5 board cards) into the terminal walker. ALLIN leaves
-      keep the precomputed `tn.value` path (correct by construction). Add
-      2-3 unit tests using known hand ranks (AA vs 22 = AA wins, AKs vs
-      72o = AKs wins, etc.).
-- [ ] **P9.2** Per-bucket reach (1 day). Add
-      `ICardAbstraction::bucket_count(player) -> usize`. The stub's
-      `hand_indexer_s::size()` returns 12888 for flop, 54912 for turn, so
-      the count is `size[1]` and `size[2]` respectively. Change
-      `initial_reach()` from `vec![vec![1.0]; n_players]` to
-      `vec![vec![1.0 / bucket_count(p)]; n_players]`. `calc_br`/`calc_ev`
-      already loop `for b in 0..res[p].len()` so the work is plumbing.
-      This brings absolute exploitability values down by 12888x (from
-      ~55000 mbb/h to ~5 mbb/h for a 1M-iter run).
-- [ ] **P9.3** `rayon` parallel MCCFR walker (1 hour). The current
-      trainer is single-threaded over leaves. `rayon::par_iter()` over the
-      leaf batch gives near-linear scaling on the 16-core box. `rayon` is
-      already a transitive dep; only `use rayon::prelude::*` is needed.
-      ~16x speedup.
+- [x] **P9.1** Real hand evaluation in terminal walker — done via **P10.1**
+      (`terminal_payoffs_from_combos`, `evaluate()`)
+- [x] **P9.2** Per-bucket reach — done via **P10.2** / **P12.4**
+      (hand-weighted reach + chip→BB scale)
+- [x] **P9.3** `rayon` parallel MCCFR walker (`rayon::ThreadPoolBuilder` in
+      `cfr.rs`)
 - [ ] **P9.4** Pre-built abstract game tree cache (0.5 day). Build the
       full game tree once at trainer init; serialize to `game_tree.bin`;
       MCCFR iterates over a `Vec<NodeId>` rather than reconstructing. The
       trainer already builds the tree once, so this is mostly a refactor
       for cache locality. ~2-3x speedup.
-- [ ] **P9.5** External-sampling MCCFR (1 day). Replace the alternating
-      player-update pattern with Lanctot et al. 2009's external-sampling:
-      one player is the "regret-updating" player, opponents' actions are
-      sampled from their strategy, all players updated in a single walk.
-      4-6x algorithmic speedup.
+- [x] **P9.5** External-sampling MCCFR (`external_sampling_mccfr` in `cfr.rs`)
 - [ ] **P9.6** Action abstraction presets (0.5 day). Per-street
       `Options::action_sizes: HashMap<Round, Vec<f32>>`. Flop: `[0.33,
       0.5, 0.75, 1.0, all-in]`. Turn/River: `[0.5, 0.75, 1.0, 1.5, 2.0,
       all-in]`. Cuts leaves 2-3x with no measurable exploitability loss.
-- [ ] **P9.7** 2p 15BB / 25BB benchmark suite (0.5 day). Reproducible
-      timing: 1M iters, single-thread baseline; with P9.3+P9.4 applied,
-      target <30 seconds per depth tier to <50 mbb/h. Print
-      `convergence.jsonl` summary table. This is the "speed checkpoint".
+- [~] **P9.7** 2p benchmark suite — KK + HU turn suite timing gates pass;
+      full 15–25 BB tier sweep and strict exploitability checkpoint open
 
 **Combined effect (cumulative):**
 
@@ -311,20 +316,21 @@ Unblock trustworthy decisions before production TUI swap. Order matters.
 
 - [x] **P10.1** Real SHOWDOWN eval in BR/EV terminal walker
 - [x] **P10.2** Per-bucket reach normalization — trustworthy `max(eps)` plumbing
-      (scale still wrong on turn trees; see P12.4)
+      (scale fixed P12.4: chip→BB, hand-weighted reach)
 - [x] **P10.3** Hero-exact strategy at query: `pin_hero`, `query_strategy()`
 - [x] **P10.4** Convergence stop: `time_budget_ms` + `target_mbb` on `TrainConfig`
 - [x] **P10.5** Flop-entry solve + turn-card sampling (infra; production uses turn-entry @ 2 BB pot matching `solver_ext`)
 - [~] **P10.6** PPT hyphen range import (`range_parse.rs`); combo-file fallback
       remains when expansion is sparse
 - [x] **P10.7** Quality gate v1: non-uniform + geometry + &lt;500 ms
-- [~] **P10.8** KK quality gate v2: parity ±0.10 (**passes**); exploitability &lt;50 mbb/h **fails** (P12.4)
+- [~] **P10.8** KK quality gate v2: parity ±0.10 (**passes**); G4 &lt;50 on wide
+      ranges **open** (small-tree unit test passes; sampled BR ~300–440 mbb)
 
 **Phase 10 gate v1 (passed Jul 2026):** KK spot — &lt;500 ms, non-uniform,
 pot/call geometry match.
 
-**Phase 10 gate v2 (required for production):** above + exploitability
-trustworthy + rjeans parity (see Phase 12).
+**Phase 10 gate v2 (partial):** parity passes; strict exploitability on wide
+ranges deferred to P12.8 (see Phase 12 G4).
 
 ### Phase 11 - Python library (`rust_solver_py`)
 
@@ -332,22 +338,24 @@ trustworthy + rjeans parity (see Phase 12).
 - [x] **P11.2** `solve_turn_decision(...)` one-shot API
 - [x] **P11.3** `TrainingSample` + `SolverSession.solve_flop_tree` compat layer
 - [ ] **P11.4** Session-scoped config cache (ranges, stack bucket, tree params)
-- [ ] **P11.5** uv integration test in CI: import, KK spot, assert gates
-- [ ] **P11.6** rjeans TUI `RUST_SOLVER=1` swap-in (**experimental only** until Phase 12)
+- [x] **P11.5** uv integration test in CI: import, KK spot, assert gates
+      (`scripts/run_quality_gates.sh` + `.gitlab-ci.yml`)
+- [x] **P11.6** rjeans TUI `RUST_SOLVER=1` swap-in (staging; code in rjeans repo)
 
-### Phase 12 - Production readiness: HU turn solving (**priority 0**, next session)
+### Phase 12 - Production readiness: HU turn solving (**priority 0**)
 
-**Goal:** `RUST_SOLVER=1` safe for real TUI turn decisions on tested HU spots.
+**Goal:** P12.8 sign-off — `RUST_SOLVER=1` safe for real TUI turn decisions on
+tested HU spots. **Current:** staging-ready; not full production.
 
 **Production definition (sign-off criteria):**
 
-| # | Criterion | Target |
-|---|-----------|--------|
-| G1 | **Decision parity** | On benchmark suite (≥5 spots): same top action as rjeans ≥80%; key prob within ±0.10 (e.g. KK check ~0.49) |
-| G2 | **Geometry** | `pot_bb`, `call_cost_bb`, board, stack bucket match query node (±0.5 BB) |
-| G3 | **Speed** | `solve_elapsed_ms < 500` per spot (16-core desktop, 200 iters default) |
-| G4 | **Exploitability** | `exploitability_max_mbb` finite and &lt;50 (stretch &lt;5) on benchmark spots |
-| G5 | **Python UX** | `rust_solver_py` drop-in; `solver_decide.py` unchanged; docs + CI green |
+| # | Criterion | Target | Staging (Jul 10) |
+|---|-----------|--------|------------------|
+| G1 | **Decision parity** | Suite ≥5 spots: top action vs rjeans ≥80%; key probs ±0.10 | KK yes; 3/5 spots lack rjeans baselines |
+| G2 | **Geometry** | `pot_bb`, `call_cost_bb`, board, stack ±0.5 BB | Pass |
+| G3 | **Speed** | `solve_elapsed_ms < 500` per spot | Pass (~35 ms) |
+| G4 | **Exploitability** | `exploitability_max_mbb` &lt;50 on benchmark spots | Scale fixed; small-tree &lt;50; wide ~300–440 (sampled BR) |
+| G5 | **Python UX** | `rust_solver_py` drop-in; CI green | Pass |
 
 **Not in scope for Phase 12:** 3p, EMD tier sweep, all stack tiers, river-only product.
 
@@ -355,40 +363,35 @@ trustworthy + rjeans parity (see Phase 12).
 at turn root skip flop betting history; rjeans `solver_ext` uses **flop-entry**
 postflop trees. Strategy parity requires P12.1 + P12.2 first.
 
-**Recommended order (next session — start here):**
+**Recommended order (P12.8 — next session):**
 
-1. **P12.1** Flop-entry solve — flop `4dQcQd`, `starting_pot=200` (2 BB),
-   check-check line → turn card → hero decision. Wire `python_api` +
-   `kk_turn_bench`. *Highest impact.*
-2. **P12.2** Tree param parity — match `solver_ext`: bet `50/75/100%`, raise
-   `2.5x`, `max_raises=3`, `all_in_threshold=1.5`; same range strings.
-3. **P12.3** Re-run KK A/B (`run_kk_turn_compare.py`); target check ≈0.49 ±0.10.
-4. **P12.4** Fix exploitability scale — debug `calc_br`/`calc_ev` on turn trees
-   (all-in terminals, reach averaging); enable stop on `target_mbb`.
-5. **P12.5** Benchmark suite — 5–10 HU turn spots from TUI hand history;
-   JSON results + ranked-decision diff vs rjeans.
-6. **P12.6** Parity gate in CI — assert G1–G4 on suite; document known deltas.
-7. **P12.7** `RUST_SOLVER=1` in rjeans TUI (staging); default stays `solver_ext`.
-8. **P12.8** Production sign-off — update README; close Phase 12 when G1–G5 pass.
+1. **P12.8** Production sign-off — close G1–G5 gaps below; update README + PLAN.
+2. **Suite A/B** — rjeans baselines for all 5 spots in `hu_turn_suite.json`;
+   extend `run_hu_turn_suite.py` to diff vs `solver_ext` (like `run_kk_turn_compare.py`).
+3. **G4 decision** — more iters + `target_mbb=50` stop, or document sampled-BR
+   bound and keep small-tree unit test for strict &lt;50.
+4. **P12.1** (optional) — flop-entry parity for raised-pot lines if turn-entry
+   insufficient.
+5. **rjeans** — commit/validate `RUST_SOLVER=1` staging in rjeans repo.
 
-**Effort estimate:** ~2–3 weeks focused (10–15 sessions).
+**Effort estimate:** P12.8 ~1–2 sessions.
 
 - [~] **P12.1** Flop-entry solve + turn-card path (infra; default = turn-entry @ 2 BB)
 - [x] **P12.2** Action/tree param parity with `solver_ext`
 - [x] **P12.3** KK parity validation vs rjeans baseline (±0.10 check prob)
-- [ ] **P12.4** Trustworthy exploitability on turn trees
-- [ ] **P12.5** Multi-spot HU turn benchmark suite
-- [ ] **P12.6** CI parity + exploitability gates
-- [ ] **P12.7** rjeans `RUST_SOLVER=1` staging integration
+- [x] **P12.4** Trustworthy exploitability on turn trees (scale fixed; sampled BR on wide ranges)
+- [x] **P12.5** Multi-spot HU turn benchmark suite
+- [x] **P12.6** CI parity + exploitability gates
+- [x] **P12.7** rjeans `RUST_SOLVER=1` staging integration
 - [ ] **P12.8** Production sign-off for HU turn solving
 
-**Phase 12 gate (production):**
+**Phase 12 gate (production = P12.8):**
 
-On `benchmarks/kk_turn_040229_prompt.md` + suite:
+On `benchmarks/hu_turn_suite.json` + KK prompt:
 
-- G1–G5 all pass
-- `RUST_SOLVER=1` recommended for staging; `solver_ext` remains default until
-  suite coverage is satisfactory
+- G1–G5 all pass (see table above for current gaps)
+- `RUST_SOLVER=1` recommended for **staging** on tested turn-entry spots;
+  `solver_ext` remains default until P12.8 closed
 
 ## Total effort
 
@@ -411,8 +414,8 @@ On `benchmarks/kk_turn_040229_prompt.md` + suite:
 
 ## Risks
 
-1. **Unsafe discount thread / UB**: silent corruption. Phase 4 fix is
-   non-negotiable.
+1. **Unsafe discount thread / UB**: **Fixed** (Phase 4; `crossbeam::scope` +
+   atomic regrets). Do not reintroduce raw-pointer discount threads.
 2. **Memory blowup in 3p**: 1.5-30 GB if sparse allocation is skipped.
    Phase 5 must precede Phase 6.
 3. **Broken non-sampling `cfr()` path**: safe-search needs exhaustive CFR.
@@ -420,20 +423,18 @@ On `benchmarks/kk_turn_040229_prompt.md` + suite:
 4. **3p constant-sum convention**: subtle. Math preamble doc + reach test
    before Phase 6.1.
 5. **Disk format**: choose `bincode` once (Phase 4), not later.
-6. **15-25BB exploitability precision**: the SHOWDOWN-leaf placeholder
-   used in the BR/EV walker (post-Phase 4 commit `950c27f`) is structurally
-   correct (zero-sum, comparable magnitude to EV) but uses "player 0 always
-   wins" as a stand-in for real hand evaluation. Absolute values are
-   10000x off the target. **P9.1 (real hand eval) is the unblocking step**
-   for any quantitative convergence claim.
+6. **15-25BB exploitability precision**: **Mitigated** by P9.1/P10.1 (real
+   hand eval) and P9.2/P10.2/P12.4 (reach + chip→BB scale). Remaining gap:
+   strict &lt;50 mbb/h on wide HU ranges at modest iter budgets (see risk #9).
 7. **Uniform strategy at runtime (Jul 2026)**: **Mitigated** by P10.3
    (hero-pinned + `query_strategy`). Remaining gap is parity vs rjeans, not
    uniformity — see risks 8–9.
-8. **Turn-entry vs flop-entry (Jul 2026)**: injecting pot at turn root gives
-   correct geometry but wrong strategic context vs rjeans. **P12.1 flop-entry
-   is the primary parity fix** before trusting turn decisions in production.
-9. **Exploitability scale on turn trees**: BR reports ~76k mbb/h despite real
-   hand eval — debug target for P12.4; blocks `target_mbb` stop criteria.
+8. **Turn-entry vs flop-entry (Jul 2026)**: turn-entry @ 2 BB achieves KK parity
+   with `solver_ext`; flop-entry (P12.1) may still matter for raised-pot lines.
+9. **Exploitability on wide ranges (Jul 2026)**: scale bug fixed (P12.4; was ~76k
+   mbb/h). Sampled BR on wide HU ranges reports ~300–440 mbb at 1000 iters;
+   strict &lt;50 mbb/h requires more iters, exact BR, or P12.8 sign-off policy.
+   Small-tree unit test `turn_tree_exploitability_under_budget` passes G4.
 10. **Hand-indexer stub disables EMD pipeline**: the stub
    `hand_indexer_s::size()` returns hard-coded values, and `get_index`
    returns a `DefaultHasher` hash. Tools that enumerate 0..N hand indices
