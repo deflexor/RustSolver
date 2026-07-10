@@ -30,7 +30,7 @@ Companion task tracker: `TASKS.md`.
 - MCCFR: PublicChance card dealing; `TrainConfig::seed` for reproducibility
 - `HeroSampleQuery` + flop-entry path for experiments (`solve_flop_entry_turn`)
 - `scripts/run_quality_gates.sh` — Rust + Python smoke (P11.5 partial)
-- **Still open:** P12.4 exploitability; P12.5–P12.8 multi-spot CI + TUI swap
+- **Still open:** P12.8 multi-spot sign-off; exploitability &lt;50 mbb on wide ranges needs more iters / exact BR
 
 **Phase 11 (scaffolded):**
 - `rust_solver_py/` PyO3 crate: `SolverSession.solve_flop_tree`, `solve_turn_decision`, `TrainingSample`

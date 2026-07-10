@@ -1,0 +1,76 @@
+{
+  "schema_version": "1.0",
+  "description": "HU turn-entry benchmark suite (TUI-derived spots, pot=2 BB call=0)",
+  "spots": [
+    {
+      "id": "kk_kd_check",
+      "hero_hand": "KsKc",
+      "flop": "4dQcQd",
+      "turn_card": "Kd",
+      "query_pot_bb": 2.0,
+      "query_call_bb": 0.0,
+      "stack_bb": 12,
+      "oop_range": "66+,A8s+,A5s-A4s,AJo+,K9s+,KQo,QTs+,JTs,96s+,85s+,75s+,65s,54s",
+      "ip_range": "QQ-22,AQs-A2s,ATo+,K5s+,KJo+,Q8s+,J8s+,T7s+,96s+,86s+,75s+,64s+,53s+",
+      "baseline_top_action": "call",
+      "baseline_check_prob": 0.6016,
+      "measure_exploitability": true
+    },
+    {
+      "id": "kk_8s_check",
+      "hero_hand": "KsKc",
+      "flop": "4dQcQd",
+      "turn_card": "8s",
+      "query_pot_bb": 2.0,
+      "query_call_bb": 0.0,
+      "stack_bb": 12,
+      "oop_range": "66+,A8s+,A5s-A4s,AJo+,K9s+,KQo,QTs+,JTs,96s+,85s+,75s+,65s,54s",
+      "ip_range": "QQ-22,AQs-A2s,ATo+,K5s+,KJo+,Q8s+,J8s+,T7s+,96s+,86s+,75s+,64s+,53s+",
+      "baseline_top_action": "call",
+      "baseline_check_prob": null,
+      "measure_exploitability": false
+    },
+    {
+      "id": "aqs_dry_turn",
+      "hero_hand": "AsQs",
+      "flop": "9h7d2c",
+      "turn_card": "3s",
+      "query_pot_bb": 2.0,
+      "query_call_bb": 0.0,
+      "stack_bb": 12,
+      "oop_range": "66+,A8s+,A5s-A4s,AJo+,K9s+,KQo,QTs+,JTs,96s+,85s+,75s+,65s,54s",
+      "ip_range": "QQ-22,AQs-A2s,ATo+,K5s+,KJo+,Q8s+,J8s+,T7s+,96s+,86s+,75s+,64s+,53s+",
+      "baseline_top_action": null,
+      "baseline_check_prob": null,
+      "measure_exploitability": false
+    },
+    {
+      "id": "pocket88_paired",
+      "hero_hand": "8s8h",
+      "flop": "4dQcQd",
+      "turn_card": "3c",
+      "query_pot_bb": 2.0,
+      "query_call_bb": 0.0,
+      "stack_bb": 12,
+      "oop_range": "66+,A8s+,A5s-A4s,AJo+,K9s+,KQo,QTs+,JTs,96s+,85s+,75s+,65s,54s",
+      "ip_range": "QQ-22,AQs-A2s,ATo+,K5s+,KJo+,Q8s+,J8s+,T7s+,96s+,86s+,75s+,64s+,53s+",
+      "baseline_top_action": null,
+      "baseline_check_prob": null,
+      "measure_exploitability": false
+    },
+    {
+      "id": "jts_flush_draw",
+      "hero_hand": "JsTs",
+      "flop": "Kh9d4c",
+      "turn_card": "2s",
+      "query_pot_bb": 2.0,
+      "query_call_bb": 0.0,
+      "stack_bb": 12,
+      "oop_range": "66+,A8s+,A5s-A4s,AJo+,K9s+,KQo,QTs+,JTs,96s+,85s+,75s+,65s,54s",
+      "ip_range": "QQ-22,AQs-A2s,ATo+,K5s+,KJo+,Q8s+,J8s+,T7s+,96s+,86s+,75s+,64s+,53s+",
+      "baseline_top_action": null,
+      "baseline_check_prob": null,
+      "measure_exploitability": false
+    }
+  ]
+}

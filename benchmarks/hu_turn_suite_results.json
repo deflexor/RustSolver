@@ -1,0 +1,310 @@
+{
+  "rust_solver": {
+    "parity_matches": 2,
+    "parity_total": 2,
+    "solver": "rust_solver",
+    "spots": [
+      {
+        "check_prob": 0.614457368850708,
+        "decisions_ranked": [
+          {
+            "action": "call",
+            "raise_to_bb": null,
+            "rank": 1,
+            "score": 0.614457368850708
+          },
+          {
+            "action": "raise",
+            "raise_to_bb": 2.0,
+            "rank": 2,
+            "score": 0.15801917016506195
+          },
+          {
+            "action": "raise",
+            "raise_to_bb": 1.5,
+            "rank": 3,
+            "score": 0.1551276594400406
+          },
+          {
+            "action": "raise",
+            "raise_to_bb": 1.0,
+            "rank": 4,
+            "score": 0.06333581358194351
+          },
+          {
+            "action": "raise",
+            "raise_to_bb": 12.0,
+            "rank": 5,
+            "score": 0.009060024283826351
+          }
+        ],
+        "exploitability_max_mbb": 443.5257873535156,
+        "matched_sample": {
+          "action_probs": [
+            0.0,
+            0.614457368850708,
+            0.3855426609516144
+          ],
+          "board": [
+            "4d",
+            "Qd",
+            "Qc",
+            "Kd"
+          ],
+          "call_cost_bb": 0.0,
+          "pot_bb": 2.0,
+          "raise_probs": [
+            0.1642770618200302,
+            0.4023618698120117,
+            0.4098617136478424,
+            0.02349940687417984
+          ]
+        },
+        "solve_elapsed_ms": 35.199465,
+        "spot_id": "kk_kd_check",
+        "top_action": "call"
+      },
+      {
+        "check_prob": 0.4590551555156708,
+        "decisions_ranked": [
+          {
+            "action": "call",
+            "raise_to_bb": null,
+            "rank": 1,
+            "score": 0.4590551555156708
+          },
+          {
+            "action": "raise",
+            "raise_to_bb": 2.0,
+            "rank": 2,
+            "score": 0.3242419362068176
+          },
+          {
+            "action": "raise",
+            "raise_to_bb": 1.5,
+            "rank": 3,
+            "score": 0.1331961303949356
+          },
+          {
+            "action": "raise",
+            "raise_to_bb": 1.0,
+            "rank": 4,
+            "score": 0.07419529557228088
+          },
+          {
+            "action": "raise",
+            "raise_to_bb": 12.0,
+            "rank": 5,
+            "score": 0.009311465546488762
+          }
+        ],
+        "exploitability_max_mbb": null,
+        "matched_sample": {
+          "action_probs": [
+            0.0,
+            0.4590551555156708,
+            0.5409448146820068
+          ],
+          "board": [
+            "4d",
+            "8s",
+            "Qd",
+            "Qc"
+          ],
+          "call_cost_bb": 0.0,
+          "pot_bb": 2.0,
+          "raise_probs": [
+            0.13715872168540955,
+            0.24622869491577148,
+            0.5993992686271667,
+            0.017213337123394012
+          ]
+        },
+        "solve_elapsed_ms": 32.102782000000005,
+        "spot_id": "kk_8s_check",
+        "top_action": "call"
+      },
+      {
+        "check_prob": 0.42424243688583374,
+        "decisions_ranked": [
+          {
+            "action": "call",
+            "raise_to_bb": null,
+            "rank": 1,
+            "score": 0.42424243688583374
+          },
+          {
+            "action": "raise",
+            "raise_to_bb": 2.0,
+            "rank": 2,
+            "score": 0.3176193833351135
+          },
+          {
+            "action": "raise",
+            "raise_to_bb": 1.5,
+            "rank": 3,
+            "score": 0.13614122569561005
+          },
+          {
+            "action": "raise",
+            "raise_to_bb": 1.0,
+            "rank": 4,
+            "score": 0.11264661699533463
+          },
+          {
+            "action": "raise",
+            "raise_to_bb": 12.0,
+            "rank": 5,
+            "score": 0.009350393898785114
+          }
+        ],
+        "exploitability_max_mbb": null,
+        "matched_sample": {
+          "action_probs": [
+            0.0,
+            0.42424243688583374,
+            0.575757622718811
+          ],
+          "board": [
+            "2c",
+            "3s",
+            "7d",
+            "9h"
+          ],
+          "call_cost_bb": 0.0,
+          "pot_bb": 2.0,
+          "raise_probs": [
+            0.19564937055110931,
+            0.2364557832479477,
+            0.5516546964645386,
+            0.016240157186985016
+          ]
+        },
+        "solve_elapsed_ms": 35.889921,
+        "spot_id": "aqs_dry_turn",
+        "top_action": "call"
+      },
+      {
+        "check_prob": 0.2507636547088623,
+        "decisions_ranked": [
+          {
+            "action": "raise",
+            "raise_to_bb": 2.0,
+            "rank": 1,
+            "score": 0.4981679320335388
+          },
+          {
+            "action": "call",
+            "raise_to_bb": null,
+            "rank": 2,
+            "score": 0.2507636547088623
+          },
+          {
+            "action": "raise",
+            "raise_to_bb": 1.5,
+            "rank": 3,
+            "score": 0.129912331700325
+          },
+          {
+            "action": "raise",
+            "raise_to_bb": 1.0,
+            "rank": 4,
+            "score": 0.11166290193796158
+          },
+          {
+            "action": "raise",
+            "raise_to_bb": 12.0,
+            "rank": 5,
+            "score": 0.009493181481957436
+          }
+        ],
+        "exploitability_max_mbb": null,
+        "matched_sample": {
+          "action_probs": [
+            0.0,
+            0.2507636547088623,
+            0.7492363452911377
+          ],
+          "board": [
+            "3c",
+            "4d",
+            "Qd",
+            "Qc"
+          ],
+          "call_cost_bb": 0.0,
+          "pot_bb": 2.0,
+          "raise_probs": [
+            0.14903561770915985,
+            0.17339299619197845,
+            0.6649008989334106,
+            0.012670475989580154
+          ]
+        },
+        "solve_elapsed_ms": 31.92325,
+        "spot_id": "pocket88_paired",
+        "top_action": "raise"
+      },
+      {
+        "check_prob": 0.24215786159038544,
+        "decisions_ranked": [
+          {
+            "action": "raise",
+            "raise_to_bb": 2.0,
+            "rank": 1,
+            "score": 0.3881271779537201
+          },
+          {
+            "action": "call",
+            "raise_to_bb": null,
+            "rank": 2,
+            "score": 0.24215786159038544
+          },
+          {
+            "action": "raise",
+            "raise_to_bb": 1.5,
+            "rank": 3,
+            "score": 0.217701718211174
+          },
+          {
+            "action": "raise",
+            "raise_to_bb": 1.0,
+            "rank": 4,
+            "score": 0.14251460134983063
+          },
+          {
+            "action": "raise",
+            "raise_to_bb": 12.0,
+            "rank": 5,
+            "score": 0.009498647414147854
+          }
+        ],
+        "exploitability_max_mbb": null,
+        "matched_sample": {
+          "action_probs": [
+            0.0,
+            0.24215786159038544,
+            0.7578421235084534
+          ],
+          "board": [
+            "2s",
+            "4c",
+            "9d",
+            "Kh"
+          ],
+          "call_cost_bb": 0.0,
+          "pot_bb": 2.0,
+          "raise_probs": [
+            0.18805314600467682,
+            0.28726527094841003,
+            0.5121477842330933,
+            0.012533807195723057
+          ]
+        },
+        "solve_elapsed_ms": 31.218809,
+        "spot_id": "jts_flush_draw",
+        "top_action": "raise"
+      }
+    ],
+    "total_elapsed_ms": 75293.584051
+  }
+}

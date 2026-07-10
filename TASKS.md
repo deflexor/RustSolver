@@ -209,10 +209,10 @@ Production = G1–G5 in `PLAN.md` Phase 12 (parity, geometry, speed, exploitabil
 | P12.1 | Flop-entry solve: flop pot 2 BB, check-check → turn → query node; wire `python_api` + `kk_turn` | 2400 | P10.5 | 0 | partial |
 | P12.2 | Tree param parity with `solver_ext` (bet 50/75/100%, raise 2.5x, max_raises, all-in threshold) | 480 | P12.1 | 0 | done |
 | P12.3 | KK A/B vs rjeans: top action + check prob within ±0.10 of baseline | 360 | P12.1, P12.2 | 0 | done |
-| P12.4 | Fix exploitability scale on turn trees; enable `target_mbb` stop | 1440 | P10.2 | 0 |
-| P12.5 | Multi-spot HU turn benchmark suite (≥5 TUI spots) + JSON diff | 720 | P12.3 | 0 |
-| P12.6 | CI gates: parity (G1), exploitability (G4) on suite | 360 | P12.5, P12.4 | 0 |
-| P12.7 | `RUST_SOLVER=1` in rjeans TUI (staging); document rollback | 240 | P12.6, P11.3 | 1 |
+| P12.4 | Fix exploitability scale on turn trees; enable `target_mbb` stop | 1440 | P10.2 | 0 | done |
+| P12.5 | Multi-spot HU turn benchmark suite (≥5 TUI spots) + JSON diff | 720 | P12.3 | 0 | done |
+| P12.6 | CI gates: parity (G1), exploitability (G4) on suite | 360 | P12.5, P12.4 | 0 | done |
+| P12.7 | `RUST_SOLVER=1` in rjeans TUI (staging); document rollback | 240 | P12.6, P11.3 | 1 | done |
 | P12.8 | Production sign-off: README + PLAN gate closed for HU turn | 120 | P12.6, P12.7 | 0 |
 
 ---

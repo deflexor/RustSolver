@@ -24,7 +24,7 @@ use crate::nodes::{PublicChanceNode, TerminalType, TerminalNode};
 use crate::tree_builder::build_game_tree;
 use crate::infoset::{Infoset, InfosetTable, create_infosets};
 use crate::nodes::GameTreeNode;
-use crate::options::Options;
+use crate::options::{Options, CHIPS_PER_BB};
 use crate::card_abstraction::{CardAbstraction, ISOMORPHIC, EMD, ICardAbstraction};
 use crate::state::{BettingRound, GameState};
 
@@ -123,6 +123,28 @@ fn generate_all_hole_card_combos(mut board_mask: u64, hand_ranges: &[HandRange])
 fn hand_conflicts(hand: HoleCards, board_mask: u64) -> bool {
     let mask = (1u64 << hand.0) | (1u64 << hand.1);
     mask & board_mask != 0
+}
+
+/// Cap terminal combo enumeration for BR/EV walks on wide ranges.
+const MAX_TERMINAL_COMBO_SAMPLES: usize = 2048;
+
+fn subsample_train_hands(
+    mut combos: Vec<TrainHand>,
+    max_samples: usize,
+    seed: u64,
+) -> Vec<TrainHand> {
+    if combos.len() <= max_samples {
+        return combos;
+    }
+    let mut state = if seed == 0 { 0xdead_beef } else { seed };
+    let n = combos.len();
+    for i in 0..max_samples {
+        state = state.wrapping_mul(6364136223846793005).wrapping_add(1);
+        let j = (state as usize % n).min(n - 1);
+        combos.swap(i, j);
+    }
+    combos.truncate(max_samples);
+    combos
 }
 
 fn generate_hand<R: Rng>(
@@ -469,12 +491,13 @@ impl MCCFRTrainer {
                 }
             });
 
-            // Convergence thread (every `conv_interval` iters).
-            if let Some(recorder) = recorder {
+            // Convergence / exploitability monitor (every `conv_interval` iters).
+            if target_mbb.is_some() || recorder.is_some() {
                 let a_self_conv = Arc::clone(&a_self);
                 let t_conv = Arc::clone(&t);
                 let stop_conv = Arc::clone(&stop);
                 let depth_tier_bb = a_self_conv.depth_tier_bb;
+                let recorder = recorder;
                 scope.spawn(move |_| {
                     let mut next_sample_at: u64 = conv_interval as u64;
                     let mut stop_reason: Option<String> = None;
@@ -500,14 +523,18 @@ impl MCCFRTrainer {
                             if sample.exploitability_max_mbb_per_hand() <= target {
                                 stop_reason = Some("target_reached".to_string());
                                 stop_conv.store(true, Ordering::Relaxed);
-                                if let Err(e) = recorder.write(&sample) {
-                                    eprintln!("[convergence] write error: {}", e);
+                                if let Some(ref recorder) = recorder {
+                                    if let Err(e) = recorder.write(&sample) {
+                                        eprintln!("[convergence] write error: {}", e);
+                                    }
                                 }
                                 break;
                             }
                         }
-                        if let Err(e) = recorder.write(&sample) {
-                            eprintln!("[convergence] write error: {}", e);
+                        if let Some(ref recorder) = recorder {
+                            if let Err(e) = recorder.write(&sample) {
+                                eprintln!("[convergence] write error: {}", e);
+                            }
                         }
                         next_sample_at = tc + conv_interval as u64;
                     }
@@ -524,7 +551,9 @@ impl MCCFRTrainer {
                             n_threads,
                             stop_reason,
                         };
-                        let _ = recorder.write(&final_sample);
+                        if let Some(ref recorder) = recorder {
+                            let _ = recorder.write(&final_sample);
+                        }
                     }
                 });
             }
@@ -750,40 +779,34 @@ impl MCCFRTrainer {
     // implementation will be reintroduced as a separate `FullCFR` module
     // for the safe-search work in Phase 6.
 
+    /// Reach-weighted aggregate of per-bucket counterfactual values.
+    fn aggregate_player_values(&self, res: &[Vec<f32>], reach: &[Vec<f32>]) -> Vec<f32> {
+        reach
+            .iter()
+            .enumerate()
+            .map(|(p, r)| {
+                r.iter()
+                    .zip(res[p].iter())
+                    .map(|(w, v)| w * v)
+                    .sum::<f32>()
+            })
+            .collect()
+    }
+
     fn calc_br(&self) -> Vec<f32> {
         let op = self.initial_reach();
-        let res = self.abstract_br(0, op, self.board_from_mask());
-        let n_players = self.hand_ranges.len();
-        let mut out = vec![0f32; n_players];
-        for p in 0..n_players {
-            for b in 0..res[p].len() {
-                out[p] += res[p][b];
-            }
-            if !res[p].is_empty() {
-                out[p] /= res[p].len() as f32;
-            }
-        }
-        return out;
+        let res = self.abstract_br(0, op.clone(), self.board_from_mask());
+        self.aggregate_player_values(&res, &op)
     }
 
     /// Average EV per player when all players use their average
     /// strategy (the same input the BR walker uses, but the actor at
     /// each infoset follows the average strategy instead of picking
-    /// the best response). Returns a length-`n_players` vector.
+    /// the best response). Returns a length-`n_players` vector in BB.
     fn calc_ev(&self) -> Vec<f32> {
         let op = self.initial_reach();
-        let res = self.abstract_ev(0, op, self.board_from_mask());
-        let n_players = self.hand_ranges.len();
-        let mut out = vec![0f32; n_players];
-        for p in 0..n_players {
-            for b in 0..res[p].len() {
-                out[p] += res[p][b];
-            }
-            if !res[p].is_empty() {
-                out[p] /= res[p].len() as f32;
-            }
-        }
-        return out;
+        let res = self.abstract_ev(0, op.clone(), self.board_from_mask());
+        self.aggregate_player_values(&res, &op)
     }
 
     fn abs_size(&self, round_idx: u8, player: u8) -> usize {
@@ -837,13 +860,44 @@ impl MCCFRTrainer {
     }
 
     fn initial_reach(&self) -> Vec<Vec<f32>> {
+        let board = self.board_from_mask();
+        let board_mask = (0..7).fold(self.initial_board_mask, |m, i| {
+            if board[i] != 0 {
+                m | (1u64 << board[i])
+            } else {
+                m
+            }
+        });
+        let round_idx = 0u8;
         let n_players = self.hand_ranges.len();
-        (0..n_players)
-            .map(|p| {
-                let n = self.bucket_count(p);
-                vec![1.0 / n as f32; n]
-            })
-            .collect()
+        let mut reach: Vec<Vec<f32>> = (0..n_players)
+            .map(|p| vec![0.0f32; self.bucket_count(p)])
+            .collect();
+        let mut totals = vec![0usize; n_players];
+        for p in 0..n_players {
+            for hand in &self.hand_ranges[p].hands {
+                if hand_conflicts(*hand, board_mask) {
+                    continue;
+                }
+                let mut cards = board;
+                cards[0] = hand.0;
+                cards[1] = hand.1;
+                let b = self.get_cluster(round_idx, p as u8, &cards);
+                if b < reach[p].len() {
+                    reach[p][b] += 1.0;
+                    totals[p] += 1;
+                }
+            }
+        }
+        for p in 0..n_players {
+            if totals[p] > 0 {
+                let inv = 1.0 / totals[p] as f32;
+                for w in &mut reach[p] {
+                    *w *= inv;
+                }
+            }
+        }
+        reach
     }
 
     fn remap_reach(
@@ -1029,7 +1083,11 @@ impl MCCFRTrainer {
                 m
             }
         });
-        let combos = generate_all_hole_card_combos(board_mask, &self.hand_ranges);
+        let combos = subsample_train_hands(
+            generate_all_hole_card_combos(board_mask, &self.hand_ranges),
+            MAX_TERMINAL_COMBO_SAMPLES,
+            self.initial_board_mask,
+        );
         let n_comm = (2..7).filter(|&i| board[i] != 0).count();
         let use_eval = matches!(
             tn.ttype,
@@ -1071,12 +1129,15 @@ impl MCCFRTrainer {
         res
     }
 
-    /// Compute (ev, best_response) in one pass. Two tree walks (one
-    /// for EV under the average strategy, one for the per-player BR)
-    /// — both O(tree size). Returned as a tuple; the convergence
-    /// writer reads both into a single `Sample`.
+    /// Compute (ev, best_response) in one pass. Values are in BB units
+    /// (chip payoffs divided by `CHIPS_PER_BB`).
     pub fn compute_sample_inputs(&self) -> (Vec<f32>, Vec<f32>) {
-        (self.calc_ev(), self.calc_br())
+        let scale = 1.0 / CHIPS_PER_BB as f32;
+        let (ev, br) = (self.calc_ev(), self.calc_br());
+        (
+            ev.iter().map(|v| v * scale).collect(),
+            br.iter().map(|v| v * scale).collect(),
+        )
     }
 
     fn abstract_br(&self, curr_node: NodeId, op: Vec<Vec<f32>>, board: [u8; 7]) -> Vec<Vec<f32>> {
@@ -1780,6 +1841,34 @@ mod tests {
         assert!(
             moved > 0,
             "single external-sampling iteration should update at least one regret"
+        );
+    }
+
+    /// P12.4: exploitability scale sane on small turn tree after training.
+    #[test]
+    fn turn_tree_exploitability_under_budget() {
+        setup_out_dir();
+        init_cards();
+        let options = default_turn_solve();
+        let mut trainer = MCCFRTrainer::init(options);
+        trainer.train(10_000);
+        let (ev, br) = trainer.compute_sample_inputs();
+        let sample = convergence::Sample {
+            iter: 10_000,
+            t_seconds: 0.0,
+            depth_tier_bb: 20,
+            n_players: 2,
+            ev,
+            best_response: br,
+            memory_mb: 0,
+            n_threads: 1,
+            stop_reason: None,
+        };
+        let eps = sample.exploitability_max_mbb_per_hand();
+        assert!(
+            eps.is_finite() && eps < 50.0,
+            "exploitability {:.2} mbb/h should be <50 on small tree",
+            eps
         );
     }
 

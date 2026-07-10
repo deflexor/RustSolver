@@ -1,0 +1,20 @@
+# GitLab CI — Phase 12 production quality gates (G1–G4 on HU turn suite).
+stages:
+  - test
+
+variables:
+  CARGO_HOME: "${CI_PROJECT_DIR}/.cargo"
+  OUT_DIR: "${CI_PROJECT_DIR}/target/release/deps"
+
+quality_gates:
+  stage: test
+  image: rust:1.85-bookworm
+  before_script:
+    - apt-get update -qq && apt-get install -y -qq python3 python3-venv python3-pip
+    - rustup component add rustfmt clippy 2>/dev/null || true
+  script:
+    - cargo build --release
+    - bash scripts/run_quality_gates.sh
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH

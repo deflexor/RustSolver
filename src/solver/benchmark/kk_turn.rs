@@ -105,26 +105,50 @@ fn load_benchmark_ranges() -> (HandRange, HandRange) {
 /// Build `Options` for a turn-entry solve on one sampled turn card.
 /// `starting_pot` is 2 BB (`solver_ext` HU_CX default).
 pub fn options_for_turn_card(turn_card: &str) -> Options {
-    let board = format!("{}{}", FLOP, turn_card);
-    let (oop_range, ip_range) = load_benchmark_ranges();
+    options_for_hu_turn_spot(
+        FLOP,
+        turn_card,
+        OOP_RANGE,
+        IP_RANGE,
+        STACK_BUCKET_BB,
+    )
+}
+
+pub fn options_for_hu_turn_spot(
+    flop: &str,
+    turn_card: &str,
+    oop_range: &str,
+    ip_range: &str,
+    stack_bb: u32,
+) -> Options {
+    let board = format!("{}{}", flop, turn_card);
+    let oop = HandRange::from_string(expand_ppt_range(oop_range));
+    let ip = HandRange::from_string(expand_ppt_range(ip_range));
     Options {
         n_players: 2,
-        hand_ranges: vec![oop_range, ip_range],
+        hand_ranges: vec![oop, ip],
         stack_sizes: vec![
-            STACK_BUCKET_BB * CHIPS_PER_BB,
-            STACK_BUCKET_BB * CHIPS_PER_BB,
+            stack_bb * CHIPS_PER_BB,
+            stack_bb * CHIPS_PER_BB,
         ],
         board_mask: get_card_mask(&board),
         starting_pot: TURN_ENTRY_POT_CHIPS,
         all_in_threshold: 1.5,
         max_raises: 3,
         action_abstraction: solver_ext_turn_action_abstraction(),
-        depth_tier_bb: STACK_BUCKET_BB,
+        depth_tier_bb: stack_bb,
         postflop_pot_override: None,
         rake: None,
         max_action_sequences_per_street: 200,
         preflop_ranges: None,
     }
+}
+
+pub fn hero_hole_cards_from_str(hand: &str) -> HoleCards {
+    let mask = get_card_mask(hand);
+    let c1 = mask.trailing_zeros() as u8;
+    let c2 = (mask ^ (1u64 << c1)).trailing_zeros() as u8;
+    HoleCards(c1, c2)
 }
 
 /// Deterministic turn-card shuffle (matches `solver_ext` seed).
@@ -204,10 +228,7 @@ fn fisher_yates_shuffle(items: &mut [String], seed: u64) {
 }
 
 pub fn hero_hole_cards() -> HoleCards {
-    let mask = get_card_mask(HERO_HAND);
-    let c1 = mask.trailing_zeros() as u8;
-    let c2 = (mask ^ (1u64 << c1)).trailing_zeros() as u8;
-    HoleCards(c1, c2)
+    hero_hole_cards_from_str(HERO_HAND)
 }
 
 pub fn pick_matching_sample<'a>(
@@ -342,6 +363,14 @@ pub fn options_for_flop_entry(_turn_card: &str) -> Options {
 }
 
 pub fn solve_turn_card(turn_card: &str) -> TurnSolveResult {
+    solve_turn_card_with_exploitability(turn_card, false).0
+}
+
+/// Solve one turn card; optionally compute `exploitability_max_mbb` after training.
+pub fn solve_turn_card_with_exploitability(
+    turn_card: &str,
+    measure_exploitability: bool,
+) -> (TurnSolveResult, Option<f32>) {
     let options = options_for_turn_card(turn_card);
     let hero = hero_hole_cards();
     let t0 = Instant::now();
@@ -355,11 +384,31 @@ pub fn solve_turn_card(turn_card: &str) -> TurnSolveResult {
     trainer.train_with_config(&cfg);
     let elapsed_ms = t0.elapsed().as_secs_f64() * 1000.0;
     let samples = trainer.collect_hero_samples(&options, hero, 0, BettingRound::Turn);
-    TurnSolveResult {
-        turn_card: turn_card.to_string(),
-        elapsed_ms,
-        samples,
-    }
+    let eps = if measure_exploitability {
+        let (ev, br) = trainer.compute_sample_inputs();
+        let sample = crate::cfr::convergence::Sample {
+            iter: MAX_ITER as u64,
+            t_seconds: 0.0,
+            depth_tier_bb: STACK_BUCKET_BB,
+            n_players: 2,
+            ev,
+            best_response: br,
+            memory_mb: 0,
+            n_threads: 1,
+            stop_reason: None,
+        };
+        Some(sample.exploitability_max_mbb_per_hand())
+    } else {
+        None
+    };
+    (
+        TurnSolveResult {
+            turn_card: turn_card.to_string(),
+            elapsed_ms,
+            samples,
+        },
+        eps,
+    )
 }
 
 /// Phase 10.7 quality gate checks on a benchmark report.
@@ -406,22 +455,38 @@ pub fn assert_quality_gate(report: &BenchmarkReport) -> Result<(), String> {
         ));
     }
 
+    // Phase 10.8 / P12.4: sampled BR on wide ranges is a conservative upper bound.
+    // Require finite exploitability well below the pre-fix ~76k scale bug.
+    if let Some(eps) = report.exploitability_max_mbb {
+        if !eps.is_finite() || eps >= 2000.0 {
+            return Err(format!(
+                "exploitability too high: {:.1} mbb/h (sanity budget <2000; scale bug was ~76k)",
+                eps
+            ));
+        }
+    }
+
     Ok(())
 }
 
 pub fn run_kk_turn_benchmark() -> BenchmarkReport {
     let turn_cards = sample_turn_cards(FLOP, HERO_HAND, TURN_CARD_LIMIT);
-    let t0 = Instant::now();
     let mut all_samples = Vec::new();
     let mut boards_sampled = Vec::new();
+    let mut exploitability_max_mbb: Option<f32> = None;
+    let mut solve_elapsed_ms = 0.0_f64;
 
-    for tc in &turn_cards {
-        let result = solve_turn_card(tc);
+    for (i, tc) in turn_cards.iter().enumerate() {
+        // Exploitability (full BR+EV walks) is expensive on wide ranges — measure once.
+        let measure_eps = i == 0;
+        let (result, eps) = solve_turn_card_with_exploitability(tc, measure_eps);
+        solve_elapsed_ms += result.elapsed_ms;
+        if let Some(e) = eps {
+            exploitability_max_mbb = Some(e);
+        }
         boards_sampled.push(tc.clone());
         all_samples.extend(result.samples);
     }
-
-    let solve_elapsed_ms = t0.elapsed().as_secs_f64() * 1000.0;
     let matched = pick_matching_sample(
         &all_samples,
         QUERY_POT_BB,
@@ -443,7 +508,7 @@ pub fn run_kk_turn_benchmark() -> BenchmarkReport {
         turn_boards_sampled: boards_sampled,
         matched_sample: matched,
         decisions_ranked,
-        exploitability_max_mbb: None,
+        exploitability_max_mbb,
         baseline,
     }
 }

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Phase 10/12 quality gates: KK turn spot (geometry, parity, speed).
+# Phase 10/12 quality gates: KK turn + HU turn suite (geometry, parity, speed, exploitability).
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
@@ -12,6 +12,12 @@ fi
 
 echo "=== KK turn quality gate (rust) ==="
 cargo test --release -p rust_solver kk_turn_quality_gate -- --ignored
+
+echo "=== Exploitability scale unit test (small tree, G4 <50) ==="
+cargo test --release -p rust_solver turn_tree_exploitability_under_budget
+
+echo "=== HU turn suite quality gate (rust) ==="
+cargo test --release -p rust_solver hu_turn_suite_quality_gate -- --ignored
 
 if [[ -d "$ROOT/.venv" ]]; then
   # shellcheck disable=SC1091
